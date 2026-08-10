@@ -1,5 +1,6 @@
 # Cashbook NAS · 自建记账本
 
+使用了原来的cashbook根据自己记账需要修改，原地址：https://github.com/dingdangdog/cashbook
 单容器 + SQLite 的个人/家庭记账应用，专为**飞牛 NAS（fnOS）**部署设计。
 一个 `docker compose up` 就跑起来，不需要额外的数据库容器。
 
