@@ -13,7 +13,7 @@ function decode(buf) {
       (n, k) => n + (s.includes(k) ? 1 : 0),
       0
     );
-  return score(gbk) >= score(utf8) ? gbk : utf8;
+  return score(gbk) > score(utf8) ? gbk : utf8;
 }
 
 // 定位表头行：第一行“看起来像表头”的行（含逗号，且命中任一常见列关键词）
@@ -35,13 +35,23 @@ function toRecords(text) {
   const lines = text.split(/\r?\n/);
   const h = locateHeader(lines);
   if (h < 0) return [];
+  // csv-parse 的 delimiter:"auto" 对中文数据不稳（会把整行识别成单列），
+  // 这里自行从表头行统计最常见的分隔符（逗号/制表符/分号/竖线）
+  const headerLine = lines[h];
+  const cands = [",", "\t", ";", "|"];
+  let delim = ",";
+  let best = 0;
+  for (const d of cands) {
+    const c = headerLine.split(d).length - 1;
+    if (c > best) { best = c; delim = d; }
+  }
   const body = lines.slice(h).join("\n");
   return parse(body, {
     columns: (header) => header.map((x) => x.trim()),
     skip_empty_lines: true,
     relax_column_count: true,
     relax_quotes: true,
-    delimiter: "auto",
+    delimiter: delim,
     trim: true,
   });
 }
@@ -110,10 +120,10 @@ function parseWechat(records) {
 const FIELD_PATTERNS = {
   time: [/交易时间/i, /记账时间/i, /时间/i, /日期/i, /date/i, /记账日期/i],
   amount: [/金额/i, /交易额/i, /数额/i, /amount/i, /price/i, /金额\(元\)/i, /金额（元）/i, /钱/i],
-  io: [/收\/支/i, /收支/i, /方向/i, /借贷/i, /进出/i, /流入流出/i, /类型/i, /收支类型/i],
+  io: [/收入\/支出/i, /收\/支/i, /收支/i, /方向/i, /借贷/i, /进出/i, /流入流出/i, /类型/i, /收支类型/i, /收付款类型/i],
   category: [/交易分类/i, /消费分类/i, /分类/i, /类别/i, /category/i, /消费类型/i],
   payment: [/支付方式/i, /付款方式/i, /账户/i, /银行/i, /卡/i, /钱包/i, /payment/i, /account/i, /资金来源/i, /结算方式/i, /收\/付款方式/i],
-  description: [/商品说明/i, /商品/i, /备注/i, /摘要/i, /用途/i, /说明/i, /memo/i, /desc/i, /交易对方/i, /对方/i, /项目/i],
+  description: [/商品说明/i, /商品/i, /备注/i, /摘要/i, /用途/i, /说明/i, /名称/i, /明细/i, /memo/i, /desc/i, /交易对方/i, /对方/i, /项目/i],
   attribution: [/归属人/i, /归属/i, /成员/i, /记账人/i, /经手人/i, /person/i, /用户名/i, /谁/i],
 };
 
