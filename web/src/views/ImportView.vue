@@ -7,12 +7,27 @@ import { toast } from "../toast.js";
 const source = ref("auto");
 const file = ref(null);
 const items = ref([]);
+const headers = ref([]);
+const mapping = ref({});
 const loading = ref(false);
 const importing = ref(false);
+
+// 通用 CSV 模式下，需要把“系统字段”映射到 CSV 的列名
+const MAP_FIELDS = [
+  { key: "time", label: "时间列", hint: "必选" },
+  { key: "amount", label: "金额列", hint: "必选" },
+  { key: "io", label: "收支/方向列", hint: "可空，留空按金额正负判断" },
+  { key: "category", label: "分类列", hint: "可空" },
+  { key: "payment", label: "支付方式/账户列", hint: "可空" },
+  { key: "description", label: "备注/摘要列", hint: "可空" },
+  { key: "attribution", label: "归属人列", hint: "可空" },
+];
 
 function onFile(e) {
   file.value = e.target.files[0] || null;
   items.value = [];
+  headers.value = [];
+  mapping.value = {};
 }
 
 async function preview() {
@@ -23,15 +38,36 @@ async function preview() {
     fd.append("file", file.value);
     fd.append("source", source.value);
     fd.append("bookId", localStorage.getItem("bookId"));
-    const { data } = await api.post("/import/preview", fd, { headers: { "Content-Type": "multipart/form-data" } });
+    if (source.value === "generic" && Object.keys(mapping.value).length) {
+      const m = {};
+      for (const [k, v] of Object.entries(mapping.value)) if (v) m[k] = v;
+      if (Object.keys(m).length) fd.append("mapping", JSON.stringify(m));
+    }
+    const { data } = await api.post("/import/preview", fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
     items.value = data.items;
-    if (!data.items.length) toast("没有解析到有效账单，请确认文件格式");
+    headers.value = data.headers || [];
+    if (source.value === "generic" && !Object.keys(mapping.value).length && data.detectedMapping) {
+      mapping.value = { ...data.detectedMapping };
+    }
+    if (!data.items.length)
+      toast(source.value === "generic" ? "未解析到数据，请手动映射列后再试" : "没有解析到有效账单，请确认文件格式");
     else toast(`解析到 ${data.count} 条`);
-  } catch (e) { toast(e.message); }
-  finally { loading.value = false; }
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    loading.value = false;
+  }
 }
 
-function removeItem(i) { items.value.splice(i, 1); }
+function applyMapping() {
+  preview();
+}
+
+function removeItem(i) {
+  items.value.splice(i, 1);
+}
 
 async function confirm() {
   if (!items.value.length) return;
@@ -41,8 +77,11 @@ async function confirm() {
     toast(`成功导入 ${data.imported} 条`);
     items.value = [];
     file.value = null;
-  } catch (e) { toast(e.message); }
-  finally { importing.value = false; }
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    importing.value = false;
+  }
 }
 
 // 数据导出
@@ -55,7 +94,9 @@ async function exportData() {
     a.download = `${data.book || "账本"}_${dayjs().format("YYYYMMDD_HHmm")}.json`;
     a.click();
     toast("已导出");
-  } catch (e) { toast(e.message); }
+  } catch (e) {
+    toast(e.message);
+  }
 }
 
 async function importData(e) {
@@ -65,8 +106,11 @@ async function importData(e) {
     const data = JSON.parse(await f.text());
     const { data: r } = await api.post("/import/import-json", { data });
     toast(`导入完成：流水 ${r.flows} 条，分类 ${r.categories}，预算 ${r.budgets}`);
-  } catch (err) { toast("导入失败：" + err.message); }
-  finally { e.target.value = ""; }
+  } catch (err) {
+    toast("导入失败：" + err.message);
+  } finally {
+    e.target.value = "";
+  }
 }
 
 const expenseCount = () => items.value.filter((x) => x.type === "expense").length;
@@ -78,20 +122,42 @@ const incomeCount = () => items.value.filter((x) => x.type === "income").length;
     <h2 class="page-title">导入 / 导出</h2>
 
     <div class="card">
-      <div class="section-title">📥 导入账单（支付宝 / 微信 CSV）</div>
+      <div class="section-title">📥 导入账单（CSV）</div>
       <div class="row" style="align-items:center;gap:10px">
         <select class="select" style="width:auto" v-model="source">
-          <option value="auto">自动识别</option>
+          <option value="auto">自动识别（支付宝/微信）</option>
           <option value="alipay">支付宝</option>
           <option value="wechat">微信</option>
+          <option value="generic">通用 CSV（自定义列）</option>
         </select>
         <input type="file" accept=".csv,text/csv" @change="onFile" />
         <button class="btn btn-primary" :disabled="loading" @click="preview">{{ loading ? "解析中…" : "解析预览" }}</button>
       </div>
       <p class="muted tips">
-        提示：支付宝 App「账单 → 开具交易流水证明 → 用于个人对账」、微信「支付 → 钱包 → 账单 → 下载账单」导出 CSV，
-        解压后上传即可。文件编码/表头会自动识别。
+        支付宝 App「账单 → 开具交易流水证明 → 用于个人对账」、微信「支付 → 钱包 → 账单 → 下载账单」导出 CSV，
+        解压后上传即可。其它记账软件请选「通用 CSV（自定义列）」，在下方把列对应好即可导入。
+        文件编码/表头会自动识别。
       </p>
+
+      <!-- 通用 CSV：列映射面板 -->
+      <div v-if="source === 'generic' && headers.length" class="card" style="margin-top:12px">
+        <div class="section-title">🔧 列映射（把你的 CSV 列对应到系统字段）</div>
+        <div class="row" style="flex-wrap:wrap;gap:14px">
+          <div v-for="f in MAP_FIELDS" :key="f.key" class="map-field">
+            <label>
+              {{ f.label }}
+              <span v-if="f.hint" class="muted" style="font-size:11px">（{{ f.hint }}）</span>
+            </label>
+            <select class="select" v-model="mapping[f.key]">
+              <option value="">（不映射）</option>
+              <option v-for="h in headers" :key="h" :value="h">{{ h }}</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-primary" :disabled="loading" @click="applyMapping" style="margin-top:12px">
+          {{ loading ? "解析中…" : "应用映射并预览" }}
+        </button>
+      </div>
 
       <template v-if="items.length">
         <div class="row prev-sum">
@@ -138,4 +204,6 @@ const incomeCount = () => items.value.filter((x) => x.type === "income").length;
 .mini { padding: 5px 8px; font-size: 13px; width: 90px; }
 .ellip { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prev-table { max-height: 420px; overflow: auto; }
+.map-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.map-field .select { width: 160px; }
 </style>

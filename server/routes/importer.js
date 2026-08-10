@@ -18,8 +18,17 @@ r.post(
   wrap((req, res) => {
     if (!req.file) return res.status(400).json({ error: "请上传CSV文件" });
     const source = req.body?.source || "auto";
-    const items = parseBill(req.file.buffer, source);
-    res.json({ count: items.length, items: items.slice(0, 1000) });
+    let mapping = null;
+    if (req.body?.mapping) {
+      try { mapping = JSON.parse(req.body.mapping); } catch { mapping = null; }
+    }
+    const result = parseBill(req.file.buffer, { source, mapping });
+    res.json({
+      count: result.items.length,
+      items: result.items.slice(0, 1000),
+      headers: result.headers,
+      detectedMapping: result.mapping,
+    });
   })
 );
 
