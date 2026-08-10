@@ -1,8 +1,13 @@
 name: Build and Push Image
 
-# 在 GitHub 上自动把 jizhang 构建成多架构镜像并推送到 GHCR（GitHub 容器仓库）。
-# 用户无需提供任何密码：推送用仓库自带的 GITHUB_TOKEN。
-# 推完后在飞牛上只要 `docker compose up -d` 拉这个镜像即可，无需在 NAS 上编译。
+# 在 GitHub 上自动把 jizhang 构建成多架构镜像，并推送到：
+#   1) Docker Hub  —— 飞牛 NAS 通过 docker.io 镜像源拉取（已验证你的网络可通，与 cashbook4 同路径）
+#   2) GHCR        —— 备用（GitHub 容器仓库，GITHUB_TOKEN 免密）
+# 推完后在飞牛上只要 `docker compose up -d` 拉镜像即可，无需在 NAS 上编译。
+#
+# 需要仓库 Secrets：
+#   DOCKERHUB_USERNAME  —— 你的 Docker Hub 用户名
+#   DOCKERHUB_TOKEN     —— Docker Hub 访问令牌（在 hub.docker.com -> Account Settings -> Security -> New Access Token 生成，勾选 Read/Write）
 
 on:
   push:
@@ -12,6 +17,9 @@ on:
 permissions:
   contents: read
   packages: write
+
+env:
+  IMAGE_NAME: jizhang
 
 jobs:
   build:
@@ -26,6 +34,13 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Log in to Docker Hub
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -39,11 +54,14 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/${{ github.repository }}:latest
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+            ghcr.io/${{ github.repository }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: 将镜像包设为 Public（便于 NAS 免登录拉取）
+      - name: 将 GHCR 镜像包设为 Public（便于备用免登录拉取）
+        if: ${{ always() }}
         run: |
           curl -s -X PUT \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
