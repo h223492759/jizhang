@@ -77,11 +77,13 @@ async function submitAdd() {
 
 function openEdit(u) {
   editing.value = u;
-  editForm.value = { nickname: u.nickname, role: u.role, password: "" };
+  editForm.value = { username: u.username, nickname: u.nickname, role: u.role, password: "" };
 }
 
 async function submitEdit() {
   const payload = {};
+  if (editForm.value.username !== editing.value.username)
+    payload.username = editForm.value.username;
   if (editForm.value.nickname !== editing.value.nickname)
     payload.nickname = editForm.value.nickname;
   if (editForm.value.role !== editing.value.role) payload.role = editForm.value.role;
@@ -241,6 +243,10 @@ async function remove(u) {
     <div v-if="editing" class="modal-mask" @click.self="editing = null">
       <div class="modal">
         <h3 class="modal-title">编辑：{{ editing.username }}</h3>
+        <label class="field">
+          <span>用户名（登录账号，可改）</span>
+          <input class="input" v-model.trim="editForm.username" placeholder="字母数字 _ . -" />
+        </label>
         <label class="field">
           <span>昵称</span>
           <input class="input" v-model.trim="editForm.nickname" />

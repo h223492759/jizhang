@@ -97,9 +97,21 @@ r.put(
     const id = Number(req.params.id);
     const target = db.prepare("SELECT * FROM users WHERE id=?").get(id);
     if (!target) return res.status(404).json({ error: "用户不存在" });
-    const { nickname, role, password } = req.body || {};
+    const { username, nickname, role, password } = req.body || {};
 
     db.transaction(() => {
+      // 修改登录用户名（管理员也可改自己的）
+      if (username && username.trim() && username.trim() !== target.username) {
+        const uname = username.trim();
+        if (!/^[A-Za-z0-9_.-]+$/.test(uname))
+          throw new Error("用户名只能包含字母、数字及 _ . -");
+        const dup = db
+          .prepare("SELECT id FROM users WHERE username=? AND id<>?")
+          .get(uname, id);
+        if (dup) throw new Error("用户名已存在");
+        db.prepare("UPDATE users SET username=? WHERE id=?").run(uname, id);
+      }
+
       if (nickname && nickname.trim() && nickname.trim() !== target.nickname) {
         const nick = nickname.trim();
         const dup = db
