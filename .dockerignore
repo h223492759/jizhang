@@ -1,0 +1,26 @@
+# 依赖与构建产物（镜像内会重新安装/构建，避免把 Windows 编译的原生模块带进 Linux 容器）
+node_modules
+web/node_modules
+web/dist
+
+# 本地数据（绝对不能打进镜像）
+data
+*.db
+*.db-wal
+*.db-shm
+
+# 环境变量与密钥
+.env
+.env.*
+!.env.example
+
+# 杂项
+.git
+.gitignore
+.vscode
+.idea
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+test_*.csv

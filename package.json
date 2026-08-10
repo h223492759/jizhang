@@ -1,0 +1,26 @@
+{
+  "name": "cashbook-nas",
+  "version": "1.0.0",
+  "description": "自建记账本 - 单容器 + SQLite，适合飞牛 NAS 部署",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "build:web": "cd web && npm install && npm run build",
+    "postinstall": "echo skip"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.8.1",
+    "csv-parse": "^5.6.0",
+    "dayjs": "^1.11.13",
+    "express": "^4.21.2",
+    "iconv-lite": "^0.6.3",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1"
+  }
+}
