@@ -1,0 +1,53 @@
+name: Build and Push Image
+
+# 在 GitHub 上自动把 jizhang 构建成多架构镜像并推送到 GHCR（GitHub 容器仓库）。
+# 用户无需提供任何密码：推送用仓库自带的 GITHUB_TOKEN。
+# 推完后在飞牛上只要 `docker compose up -d` 拉这个镜像即可，无需在 NAS 上编译。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (交叉编译 arm64)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (amd64 + arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/${{ github.repository }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 将镜像包设为 Public（便于 NAS 免登录拉取）
+        run: |
+          curl -s -X PUT \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/user/packages/container/jizhang/visibility \
+            -d '{"visibility":"public"}' \
+            || echo "若失败，请到 GitHub -> Packages -> jizhang -> Settings 把可见性改为 Public"

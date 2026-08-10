@@ -36,28 +36,28 @@
 
 ---
 
-## 一、部署到飞牛 NAS（推荐方式：Compose 本地构建）
+## 一、部署到飞牛 NAS（推荐：拉预编译镜像，无需在 NAS 编译）
 
-### 第 1 步：把项目传到 NAS
+镜像由 GitHub Actions 自动构建并发布到 GitHub 容器仓库 **GHCR**：
+`ghcr.io/h223492759/jizhang:latest`（多架构 amd64 / arm64，已设为公开）。
+你在飞牛上只要拉这个现成镜像跑起来，**不需要在 NAS 上装依赖、编译 SQLite**，比原版 cashbook 还简单（单容器，连数据库容器都不要）。
 
-用飞牛的「文件管理」把整个 `cashbook-nas` 文件夹上传到一个你喜欢的位置，例如：
+### 第 1 步：配置镜像源（关键，否则拉不下来）
 
-```
-/vol1/1000/docker/cashbook-nas
-```
+你的 NAS 直连 docker.io / ghcr.io 会超时，必须走镜像源。飞牛 Docker 设置 → 镜像源，只保留：
 
-> 💡 上传前**不用**带 `node_modules`、`web/dist`、`data` 这些文件夹，镜像会自己构建。
+- `https://docker.1panel.dev`（推荐，同时代理 docker.io 与 ghcr.io）
+- 备选：`https://hub-mirror.c.163.com`
 
-### 第 2 步：准备 .env
+> ⚠️ 不要加这些失效源：`docker.xuanyuan.me`(429 限流)、`docker.fnnas.com`(401 需登飞牛账号)、个人阿里云加速器如 `x87oljr6.mirror.aliyuncs.com`(403)。
+> 改完镜像源后**务必重启 Docker 守护进程 / 重启 NAS** 才生效。
 
-在 NAS 终端（或用文件管理直接编辑）进入项目目录：
+### 第 2 步：准备两个文件
 
-```bash
-cd /vol1/1000/docker/cashbook-nas
-cp .env.example .env
-```
+在 NAS 上建一个目录（例如 `/vol1/1000/docker/jizhang`），放进去：
 
-编辑 `.env`，**至少改这三项**：
+- `docker-compose.yml`（仓库里已写好，直接拉 `ghcr.io/h223492759/jizhang:latest`）
+- `.env`（复制 `.env.example` 改名，至少改 `JWT_SECRET` 和 `ADMIN_PASSWORD`）
 
 ```ini
 JWT_SECRET=用 openssl rand -hex 32 生成的随机串
@@ -65,30 +65,28 @@ ADMIN_USERNAME=你的管理员账号
 ADMIN_PASSWORD=你的强密码
 ```
 
+> 不用传 `Dockerfile`、`server/`、`web/` 这些——镜像是现成的，只要 compose + .env。
+
 ### 第 3 步：启动
 
 **方式 A —— 终端（最快）**
 
 ```bash
-cd /vol1/1000/docker/cashbook-nas
-docker compose up -d --build
+cd /vol1/1000/docker/jizhang
+docker compose up -d
 ```
 
-首次构建要装依赖 + 编译 SQLite 原生模块，**大约 3~8 分钟**，之后启动都是秒级。
+飞牛会去 GHCR 拉镜像，几十秒到一两分钟，之后启动都是秒级。
 
 **方式 B —— 飞牛图形界面**
 
 1. 打开飞牛「**Docker**」应用 → 左侧「**Compose**」
 2. 点「**新增项目**」
-3. 项目名填 `cashbook`
-4. 路径选到你上传的 `cashbook-nas` 目录（该目录下必须有 `docker-compose.yml`）
-5. 把 `docker-compose.yml` 内容粘贴/确认无误 → 点「**部署**」
-6. 等待构建完成，状态变成 `running`
+3. 项目名填 `jizhang`
+4. 路径选到上面的目录（里面要有 `docker-compose.yml` 和 `.env`）
+5. 确认内容 → 点「**部署**」→ 等状态 `running`
 
-> ⚠️ **飞牛图形界面部署最常见的坑**：第 4 步「路径」一定要选**包含 `Dockerfile` 的那个项目目录**（例如 `cashbook-nas/`），而**不能只把 `docker-compose.yml` 单独粘贴到一个空目录**。
-> compose 的构建上下文是「路径」目录，Docker 会在里面找 `Dockerfile`。如果目录里只有 `docker-compose.yml`、没有 `Dockerfile` 和源码，就会报：
-> `failed to solve: failed to read dockerfile: open Dockerfile: no such file or directory`
-> 推荐用「方式 A 终端」，因为它就是在你上传的目录里执行的，绝不会找错上下文。
+> 因为是拉镜像（不是本地构建），路径目录里**不需要 Dockerfile**，只要 `docker-compose.yml` + `.env` 即可。
 
 ### 第 4 步：访问
 
@@ -110,7 +108,7 @@ cd /vol1/1000/docker/cashbook-nas
 docker compose logs -f          # 看实时日志
 docker compose restart          # 重启
 docker compose down             # 停止并删除容器（数据不丢，在 ./data 里）
-docker compose up -d --build    # 改了代码后重新构建并启动
+docker compose pull && docker compose up -d   # 拉取最新镜像并更新
 docker compose ps               # 查看状态（healthy 表示健康检查通过）
 ```
 
@@ -251,17 +249,15 @@ npm run dev          # http://localhost:5173，已配置代理到后端
 **Q：端口 9600 被占用？**
 改 `docker-compose.yml` 里 `ports` 冒号左边的数字，比如 `"9700:9600"`，然后访问 9700。
 
-**Q：构建时 better-sqlite3 编译失败？**
-镜像里已经装了 `python3 make g++` 兜底编译。若仍失败，多半是 NAS 内存不足，关掉一些容器再构建。
+**Q：拉镜像报 `context deadline exceeded` / `403` / `401`？**
+说明镜像源没配对。现在拉的是 GHCR 镜像，同样需要镜像源代理 ghcr.io。确保飞牛镜像源只保留 `https://docker.1panel.dev`（它同时代理 docker.io 与 ghcr.io），删掉 `xuanyuan.me`(429) / `docker.fnnas.com`(401) / 个人阿里云加速器(403) 这些失效源，并**重启 Docker / NAS** 后重试。
 
-**Q：构建报 `context deadline exceeded` 或拉取 `node:22-bookworm-slim` 超时？**
-说明 NAS 连不上 Docker Hub（国内网络常见）。两个办法：
-1. 在飞牛 Docker 设置里配置**镜像加速器 / registry mirror**（如 `https://docker.1panel.dev` 或你常用的国内镜像源），保存后重试；
-2. 或确认 NAS 能正常访问外网后重试。
-构建需要的 `node:22-bookworm-slim` 基础镜像必须先从 Docker Hub 拉下来，这一步绕不开。
+**Q：想更新到最新版？**
+`docker compose pull && docker compose up -d` 即可拉新镜像重启（数据在 `./data` 不受影响）。镜像由 GitHub Actions 在每次推送到 `main` 时自动重新构建发布。
 
-**Q：构建报 `open Dockerfile: no such file or directory`？**
-构建上下文目录里找不到 `Dockerfile`。请确认你是把**整个 `cashbook-nas` 目录**（含 `Dockerfile`、`server/`、`web/`、`package.json` 等）放进了 compose 的「路径」目录，而不是只粘贴了 `docker-compose.yml`。用「方式 A 终端」在目录内执行 `docker compose up -d --build` 最稳。
+**Q：我想自己改代码后重新构建镜像？**
+方式一：把改动推到 GitHub `main` 分支，Actions 会自动构建并覆盖 `ghcr.io/h223492759/jizhang:latest`。
+方式二（纯本地）：保留 `Dockerfile`，在目录内 `docker compose up -d --build`；此时需要 NAS 能拉到 `node:22-bookworm-slim` 基础镜像（走镜像源），且编译 SQLite 需要一点时间和内存。
 
 **Q：忘记管理员密码？**
 停容器 → 删掉 `data/cashbook.db` 会连数据一起没（慎用）。更稳妥的做法是在 `.env` 里改 `ADMIN_USERNAME` 为一个新名字重启，会创建一个新管理员账号，登录后再处理旧账号。
