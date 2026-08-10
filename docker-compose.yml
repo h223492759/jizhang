@@ -1,8 +1,8 @@
 services:
   cashbook:
     # 直接拉取预编译镜像（已发布到 Docker Hub，走 docker.io 镜像源，与 cashbook4 同路径）
-    # 镜像位于 Docker Hub 账户 lhj004；一般无需改动。如需覆盖，在 .env 里设 DOCKERHUB_USERNAME
-    image: ${DOCKERHUB_USERNAME:-lhj004}/jizhang:latest
+    # 镜像位于 Docker Hub 账户 h223492759；一般无需改动。如需覆盖，在 .env 里设 DOCKERHUB_USERNAME
+    image: ${DOCKERHUB_USERNAME:-h223492759}/jizhang:latest
     container_name: cashbook
     restart: unless-stopped
 
