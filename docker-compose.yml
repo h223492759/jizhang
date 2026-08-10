@@ -1,10 +1,9 @@
 services:
   cashbook:
-    # 在 NAS 上直接用当前目录源码构建镜像（无需任何镜像仓库）
+    # 在 NAS 上直接用当前目录源码构建镜像（无需任何镜像仓库，也不会去 Docker Hub 拉现成镜像）
     build:
       context: .
       dockerfile: Dockerfile
-    image: cashbook-nas:latest
     container_name: cashbook
     restart: unless-stopped
 

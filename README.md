@@ -85,6 +85,11 @@ docker compose up -d --build
 5. 把 `docker-compose.yml` 内容粘贴/确认无误 → 点「**部署**」
 6. 等待构建完成，状态变成 `running`
 
+> ⚠️ **飞牛图形界面部署最常见的坑**：第 4 步「路径」一定要选**包含 `Dockerfile` 的那个项目目录**（例如 `cashbook-nas/`），而**不能只把 `docker-compose.yml` 单独粘贴到一个空目录**。
+> compose 的构建上下文是「路径」目录，Docker 会在里面找 `Dockerfile`。如果目录里只有 `docker-compose.yml`、没有 `Dockerfile` 和源码，就会报：
+> `failed to solve: failed to read dockerfile: open Dockerfile: no such file or directory`
+> 推荐用「方式 A 终端」，因为它就是在你上传的目录里执行的，绝不会找错上下文。
+
 ### 第 4 步：访问
 
 浏览器打开：
@@ -248,6 +253,15 @@ npm run dev          # http://localhost:5173，已配置代理到后端
 
 **Q：构建时 better-sqlite3 编译失败？**
 镜像里已经装了 `python3 make g++` 兜底编译。若仍失败，多半是 NAS 内存不足，关掉一些容器再构建。
+
+**Q：构建报 `context deadline exceeded` 或拉取 `node:22-bookworm-slim` 超时？**
+说明 NAS 连不上 Docker Hub（国内网络常见）。两个办法：
+1. 在飞牛 Docker 设置里配置**镜像加速器 / registry mirror**（如 `https://docker.1panel.dev` 或你常用的国内镜像源），保存后重试；
+2. 或确认 NAS 能正常访问外网后重试。
+构建需要的 `node:22-bookworm-slim` 基础镜像必须先从 Docker Hub 拉下来，这一步绕不开。
+
+**Q：构建报 `open Dockerfile: no such file or directory`？**
+构建上下文目录里找不到 `Dockerfile`。请确认你是把**整个 `cashbook-nas` 目录**（含 `Dockerfile`、`server/`、`web/`、`package.json` 等）放进了 compose 的「路径」目录，而不是只粘贴了 `docker-compose.yml`。用「方式 A 终端」在目录内执行 `docker compose up -d --build` 最稳。
 
 **Q：忘记管理员密码？**
 停容器 → 删掉 `data/cashbook.db` 会连数据一起没（慎用）。更稳妥的做法是在 `.env` 里改 `ADMIN_USERNAME` 为一个新名字重启，会创建一个新管理员账号，登录后再处理旧账号。
