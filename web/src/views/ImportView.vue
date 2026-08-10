@@ -19,7 +19,7 @@ const MAP_FIELDS = [
   { key: "io", label: "收支/方向列", hint: "可空，留空按金额正负判断" },
   { key: "category", label: "分类列", hint: "可空" },
   { key: "payment", label: "支付方式/账户列", hint: "可空" },
-  { key: "description", label: "备注/摘要列", hint: "可空" },
+  { key: "description", label: "名称/摘要列", hint: "可空" },
   { key: "attribution", label: "归属人列", hint: "可空" },
 ];
 
@@ -169,7 +169,7 @@ const incomeCount = () => items.value.filter((x) => x.type === "income").length;
         </div>
         <div class="prev-table card" style="padding:0">
           <table class="tbl">
-            <thead><tr><th>时间</th><th>类型</th><th>分类</th><th class="hide-mobile">备注</th><th class="hide-mobile">支付方式</th><th style="text-align:right">金额</th><th></th></tr></thead>
+            <thead><tr><th>时间</th><th>类型</th><th>分类</th><th class="hide-mobile">名称</th><th class="hide-mobile">支付方式</th><th style="text-align:right">金额</th><th></th></tr></thead>
             <tbody>
               <tr v-for="(it,i) in items" :key="i">
                 <td class="muted">{{ dayjs(it.flow_time).format("MM-DD HH:mm") }}</td>

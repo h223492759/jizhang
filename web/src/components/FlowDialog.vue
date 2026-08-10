@@ -31,7 +31,7 @@ const cats = computed(() =>
   store.categories.filter((c) => c.type === form.value.type)
 );
 
-// ---------------- 备注候选：常用预设 / 高频 / 最近 ----------------
+// ---------------- 名称候选：常用预设 / 高频 / 最近 ----------------
 const sug = ref({ presets: [], frequent: [], recent: [] });
 const sugLoading = ref(false);
 const hasSug = computed(
@@ -55,7 +55,7 @@ async function loadSuggestions() {
   }
 }
 
-// 点击标签：填备注，并顺带带出它常用的分类/支付方式/金额（不覆盖已填内容）
+// 点击标签：填名称，并顺带带出它常用的分类/支付方式/金额（不覆盖已填内容）
 function applySug(item) {
   form.value.description = item.name;
   if (item.category && cats.value.some((c) => c.name === item.category)) {
@@ -69,10 +69,10 @@ function applySug(item) {
   }
 }
 
-// 把当前备注收藏为常用消费名称
+// 把当前名称收藏为常用消费名称
 async function togglePin() {
   const name = (form.value.description || "").trim();
-  if (!name) return toast("请先填写备注");
+  if (!name) return toast("请先填写名称");
   const exist = sug.value.presets.find((p) => p.name === name);
   try {
     if (exist) {
@@ -222,14 +222,14 @@ function close() {
 
       <div class="field">
         <span class="lbl-row">
-          备注
+          名称
           <a class="pin" :class="{ on: isPinned }" @click="togglePin">
             {{ isPinned ? "★ 取消常用" : "☆ 设为常用" }}
           </a>
         </span>
         <input class="input" v-model.trim="form.description" placeholder="这笔钱花在哪儿" />
 
-        <!-- 可点击的备注候选：常用置顶 → 高频 → 最近 -->
+        <!-- 可点击的名称候选：常用置顶 → 高频 → 最近 -->
         <div class="sug" v-if="hasSug">
           <div class="sug-line" v-if="sug.presets.length">
             <b class="sug-tag pin-tag">常用</b>

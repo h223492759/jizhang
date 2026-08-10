@@ -85,7 +85,7 @@ function catIcon(name) {
         <option value="">全部归属</option>
         <option v-for="a in facets.attributions" :key="a" :value="a">{{ a }}</option>
       </select>
-      <input class="input" style="width:150px" v-model.trim="filter.keyword" placeholder="搜索备注" @keyup.enter="doFilter" />
+      <input class="input" style="width:150px" v-model.trim="filter.keyword" placeholder="搜索名称" @keyup.enter="doFilter" />
       <button class="btn btn-primary btn-sm" @click="doFilter">筛选</button>
       <button class="btn btn-sm" @click="reset">重置</button>
     </div>
@@ -104,7 +104,7 @@ function catIcon(name) {
       <table v-else class="tbl">
         <thead>
           <tr>
-            <th>分类</th><th class="hide-mobile">备注</th><th class="hide-mobile">时间</th><th class="hide-mobile">归属</th><th style="text-align:right">金额</th><th></th>
+            <th>分类</th><th class="hide-mobile">名称</th><th class="hide-mobile">时间</th><th class="hide-mobile">归属</th><th style="text-align:right">金额</th><th></th>
           </tr>
         </thead>
         <tbody>

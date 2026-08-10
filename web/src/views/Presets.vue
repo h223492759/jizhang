@@ -107,11 +107,11 @@ async function pin(item) {
 
 <template>
   <div>
-    <h2 class="page-title">常用备注</h2>
+    <h2 class="page-title">常用名称</h2>
 
     <div class="card">
       <p class="muted" style="font-size: 13px; margin: 0 0 14px; line-height: 1.7">
-        在这里预设常用的消费名称，记一笔时会显示成可点击的标签，点一下就填好备注，还能自动带出分类、支付方式和常用金额。<br />
+        在这里预设常用的消费名称，记一笔时会显示成可点击的标签，点一下就填好名称，还能自动带出分类、支付方式和常用金额。<br />
         下方的「高频」和「最近」由系统根据你的记账习惯自动统计，无需维护，越用越准。
       </p>
 
@@ -162,13 +162,13 @@ async function pin(item) {
     </div>
 
     <div class="card" style="margin-top: 16px">
-      <div class="section-title">高频备注（用得最多，点 ☆ 收藏为常用）</div>
+      <div class="section-title">高频名称（用得最多，点 ☆ 收藏为常用）</div>
       <div class="chips" v-if="data.frequent.length">
         <button class="chip" v-for="p in data.frequent" :key="p.name" @click="pin(p)">
           {{ p.name }}<i>×{{ p.count }}</i><em>☆</em>
         </button>
       </div>
-      <div v-else class="muted">同一备注用满 2 次后会出现在这里</div>
+      <div v-else class="muted">同一名称用满 2 次后会出现在这里</div>
 
       <div class="section-title" style="margin-top: 20px">最近用过</div>
       <div class="chips" v-if="data.recent.length">

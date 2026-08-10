@@ -19,7 +19,7 @@ const allNav = [
   { name: "import", label: "导入", icon: "📥" },
   { name: "books", label: "账本", icon: "📚" },
   { name: "categories", label: "分类", icon: "🏷️" },
-  { name: "presets", label: "常用备注", icon: "🔖" },
+  { name: "presets", label: "常用名称", icon: "🔖" },
   { name: "users", label: "用户管理", icon: "👥", admin: true },
   { name: "settings", label: "设置", icon: "⚙️" },
 ];

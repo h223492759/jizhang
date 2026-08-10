@@ -86,7 +86,7 @@ async function analyze() {
           <span v-if="result.payment_method" class="tag">{{ result.payment_method }}</span>
           <span class="muted small">来源：{{ result.source === "ai" ? "AI模型" : "本地规则" }}</span>
         </div>
-        <div v-if="result.description" class="muted">备注：{{ result.description }}</div>
+        <div v-if="result.description" class="muted">名称：{{ result.description }}</div>
         <div class="row" style="justify-content:flex-end;margin-top:10px">
           <button class="btn" @click="result=null">取消</button>
           <button class="btn btn-primary" @click="confirmResult">确认并记账</button>

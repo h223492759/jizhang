@@ -6,10 +6,10 @@ const r = Router();
 r.use(auth);
 
 /**
- * 备注候选词。三组数据，前端展示成可点击的标签：
+ * 名称候选词。三组数据，前端展示成可点击的标签：
  *  - presets  手动预设的常用消费名称（置顶，可带默认分类/支付方式/金额）
- *  - frequent 该账本用得最多的备注（按出现次数）
- *  - recent   最近用过的备注（按时间倒序）
+ *  - frequent 该账本用得最多的名称（按出现次数）
+ *  - recent   最近用过的名称（按时间倒序）
  * 后两组从流水里实时统计，越用越准，不需要维护。
  */
 r.get(
@@ -27,7 +27,7 @@ r.get(
       )
       .all(req.bookId, type);
 
-    // 同一备注取它最近一次用的分类/支付方式，点击时一并带出
+    // 同一名称取它最近一次用的分类/支付方式，点击时一并带出
     const lastOf = (field) =>
       `(SELECT f2.${field} FROM flows f2
          WHERE f2.book_id=f.book_id AND f2.type=f.type AND f2.description=f.description

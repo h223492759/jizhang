@@ -71,11 +71,11 @@ CREATE TABLE IF NOT EXISTS budgets (
   UNIQUE (book_id, year, category)
 );
 
--- 常用消费名称预设（手动置顶的备注模板）
+-- 常用消费名称预设（手动置顶的名称模板）
 CREATE TABLE IF NOT EXISTS presets (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   book_id        INTEGER NOT NULL,
-  name           TEXT NOT NULL,              -- 备注文本，如「早饭」「地铁通勤」
+  name           TEXT NOT NULL,              -- 名称文本，如「早饭」「地铁通勤」
   type           TEXT NOT NULL DEFAULT 'expense',
   category       TEXT NOT NULL DEFAULT '',   -- 可选：点击后自动带出的分类
   payment_method TEXT NOT NULL DEFAULT '',   -- 可选：点击后自动带出的支付方式
