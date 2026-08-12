@@ -9,7 +9,11 @@ const tab = ref("expense");
 const showDialog = ref(false);
 const form = ref({ id: null, name: "", type: "expense", icon: "💰", color: "#6366f1" });
 
-const ICONS = ["🍜","🛍️","🚌","🏠","🎮","💊","📚","📱","🎁","💸","💼","🏆","📈","🧧","🪙","☕","🍔","🚗","✈️","🏥","🎬","👕","🐱","💡","🎓","💰","💳","🍎","🏋️","🎵"];
+const ICONS = [
+  "🍜","🛍️","🚌","🏠","🎮","💊","📚","📱","🎁","💸","💼","🏆","📈","🧧","🪙","☕","🍔","🚗","✈️","🏥","🎬","👕","🐱","💡","🎓","💰","💳","🍎","🏋️","🎵",
+  "🥘","🥡","🧋","🥦","🍉","🍰","🍪","🍺","💄","🧴","👟","👜","🧥","💍","🎂","💐","🎉","🤝","🚕","🚄","🅿️","⛽","🔧","💻","📷","🎧","🎨","🚲","🏊","🏕️",
+  "🧳","🛏️","🛋️","🪴","🧹","🐶","🐟","🖊️","🎒","🏫","📊","🏦","💹","🧾","👶","🍼","👴","👫","💒","🎊","📺","🎤","🎲","📦","⚙️","🛡️","🎰","📎","⭐","📌","❤️"
+];
 const COLORS = ["#6366f1","#ef4444","#f59e0b","#10b981","#3b82f6","#ec4899","#8b5cf6","#14b8a6","#f97316","#64748b"];
 
 const list = computed(() => store.categories.filter((c) => c.type === tab.value));
@@ -104,7 +108,7 @@ async function del(c) {
 .cname { font-size: 13px; }
 .del { position: absolute; top: 6px; right: 8px; border: none; background: transparent; color: var(--text-2); cursor: pointer; font-size: 16px; opacity: 0; }
 .cat:hover .del { opacity: 1; }
-.picker { display: flex; flex-wrap: wrap; gap: 6px; }
+.picker { display: flex; flex-wrap: wrap; gap: 6px; max-height: 180px; overflow-y: auto; padding-right: 4px; }
 .picon { width: 38px; height: 38px; border: 1px solid var(--border); background: var(--surface-2); border-radius: 9px; font-size: 19px; cursor: pointer; }
 .picon.on { border-color: var(--primary); background: var(--primary-soft); }
 .pcolor { width: 30px; height: 30px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
