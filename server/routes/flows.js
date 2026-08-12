@@ -149,32 +149,80 @@ r.post(
   })
 );
 
+// 查重指纹：日期 + 类型 + 金额(分) + 名称 + 分类 + 支付方式
+// 同一天、同类型、同金额、同名称、同分类、同支付方式 → 视为同一笔（重复）
+export function flowDedupKey(it) {
+  const type = it.type === "income" ? "income" : "expense";
+  const date = (it.flow_time || "").slice(0, 10);
+  const desc = String(it.description || "").trim();
+  const cat = String(it.category || "其他").trim();
+  const pay = String(it.payment_method || "").trim();
+  const cents = Math.round(Number(it.amount || 0) * 100);
+  return `${date}|${type}|${cents}|${desc}|${cat}|${pay}`;
+}
+
+// 加载本账本已有记录的指纹集合，供导入时查重
+export function loadBookDedupKeys(bookId) {
+  const rows = db
+    .prepare(
+      `SELECT substr(flow_time,1,10) d, type, ROUND(amount,2) amt,
+              description, category, payment_method
+         FROM flows WHERE book_id=?`
+    )
+    .all(bookId);
+  const seen = new Set();
+  for (const r of rows) {
+    seen.add(
+      `${r.d}|${r.type}|${Math.round(Number(r.amt) * 100)}|${r.description}|${r.category}|${r.payment_method}`
+    );
+  }
+  return seen;
+}
+
 // 批量新建（用于导入）：默认全部归属到导入者
-export function insertMany(bookId, userId, defaultAttr, items, defaultUid = null) {
+// opts.dedup=true 时，与「本账本已有账单 + 本批次已插入」重复的记录会被跳过，
+// 返回 { imported, skipped }，避免重复导入同一份 CSV 导致账单翻倍。
+export function insertMany(bookId, userId, defaultAttr, items, defaultUid = null, opts = {}) {
+  const dedup = !!opts.dedup;
+  const seen = dedup ? loadBookDedupKeys(bookId) : null;
   const stmt = db.prepare(
     `INSERT INTO flows (book_id, user_id, attribution, attribution_uid, type, amount, category, payment_method, description, flow_time)
      VALUES (?,?,?,?,?,?,?,?,?,?)`
   );
   const tx = db.transaction((rows) => {
-    let n = 0;
+    let imported = 0;
+    let skipped = 0;
     for (const it of rows) {
-      if (!it.amount || it.amount <= 0) continue;
+      const amount = Number(it.amount);
+      if (!amount || amount <= 0) { skipped++; continue; }
+      const type = it.type === "income" ? "income" : "expense";
+      const flow_time = it.flow_time || dayjs().format("YYYY-MM-DD HH:mm:ss");
       const hasCustomAttr = !!it.attribution && it.attribution !== defaultAttr;
+      const desc = String(it.description || "").trim();
+      const cat = String(it.category || "其他").trim();
+      const pay = String(it.payment_method || "").trim();
+
+      if (dedup) {
+        const key = `${flow_time.slice(0, 10)}|${type}|${Math.round(amount * 100)}|${desc}|${cat}|${pay}`;
+        if (seen.has(key)) { skipped++; continue; }
+        seen.add(key);
+      }
+
       stmt.run(
         bookId,
         userId,
         it.attribution || defaultAttr,
         hasCustomAttr ? null : defaultUid,
-        it.type === "income" ? "income" : "expense",
-        it.amount,
-        it.category || "其他",
-        it.payment_method || "",
-        it.description || "",
-        it.flow_time || dayjs().format("YYYY-MM-DD HH:mm:ss")
+        type,
+        amount,
+        cat,
+        pay,
+        desc,
+        flow_time
       );
-      n++;
+      imported++;
     }
-    return n;
+    return { imported, skipped };
   });
   return tx(items);
 }

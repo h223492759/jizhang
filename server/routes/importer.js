@@ -4,7 +4,7 @@ import dayjs from "dayjs";
 import { db } from "../db.js";
 import { auth, requireBook, wrap } from "../mw.js";
 import { parseBill } from "../lib/csv.js";
-import { insertMany } from "./flows.js";
+import { insertMany, flowDedupKey, loadBookDedupKeys } from "./flows.js";
 
 const r = Router();
 r.use(auth);
@@ -23,8 +23,17 @@ r.post(
       try { mapping = JSON.parse(req.body.mapping); } catch { mapping = null; }
     }
     const result = parseBill(req.file.buffer, { source, mapping });
+    // 与「本账本已有账单」比对，标记重复项（导入时会跳过）
+    const seen = loadBookDedupKeys(req.bookId);
+    let dupCount = 0;
+    for (const it of result.items) {
+      const dup = seen.has(flowDedupKey(it));
+      it.dup = dup;
+      if (dup) dupCount++;
+    }
     res.json({
       count: result.items.length,
+      dupCount,
       items: result.items.slice(0, 1000),
       headers: result.headers,
       detectedMapping: result.mapping,
@@ -32,15 +41,15 @@ r.post(
   })
 );
 
-// 确认导入：把前端确认后的条目写入
+// 确认导入：把前端确认后的条目写入（自动跳过与已有账单重复的记录）
 r.post(
   "/confirm",
   requireBook,
   wrap((req, res) => {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     if (!items.length) return res.status(400).json({ error: "没有可导入的数据" });
-    const n = insertMany(req.bookId, req.user.id, req.user.nickname, items, req.user.id);
-    res.json({ imported: n });
+    const r = insertMany(req.bookId, req.user.id, req.user.nickname, items, req.user.id, { dedup: true });
+    res.json({ imported: r.imported, skipped: r.skipped });
   })
 );
 
@@ -59,8 +68,8 @@ r.post(
         ? dayjs(x.flow_time).format("YYYY-MM-DD HH:mm:ss")
         : dayjs().format("YYYY-MM-DD HH:mm:ss"),
     }));
-    const n = insertMany(req.bookId, req.user.id, req.user.nickname, items, req.user.id);
-    res.json({ imported: n });
+    const n = insertMany(req.bookId, req.user.id, req.user.nickname, items, req.user.id, { dedup: true });
+    res.json({ imported: n.imported, skipped: n.skipped });
   })
 );
 
@@ -97,8 +106,8 @@ r.post(
       const ins = db.prepare("INSERT INTO budgets (book_id,year,category,amount) VALUES (?,?,?,?) ON CONFLICT(book_id,year,category) DO UPDATE SET amount=excluded.amount");
       for (const b of data.budgets) { ins.run(req.bookId, b.year, b.category || "", b.amount); buds++; }
     }
-    const n = insertMany(req.bookId, req.user.id, req.user.nickname, data.flows || [], req.user.id);
-    res.json({ flows: n, categories: cats, budgets: buds });
+    const n = insertMany(req.bookId, req.user.id, req.user.nickname, data.flows || [], req.user.id, { dedup: false });
+    res.json({ flows: n.imported, skipped: n.skipped, categories: cats, budgets: buds });
   })
 );
 

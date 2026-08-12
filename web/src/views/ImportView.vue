@@ -8,6 +8,7 @@ const source = ref("auto");
 const file = ref(null);
 const items = ref([]);
 const headers = ref([]);
+const dupCount = ref(0);
 const mapping = ref({});
 const loading = ref(false);
 const importing = ref(false);
@@ -48,11 +49,14 @@ async function preview() {
     });
     items.value = data.items;
     headers.value = data.headers || [];
+    dupCount.value = data.dupCount || 0;
     if (source.value === "generic" && !Object.keys(mapping.value).length && data.detectedMapping) {
       mapping.value = { ...data.detectedMapping };
     }
     if (!data.items.length)
       toast(source.value === "generic" ? "未解析到数据，请手动映射列后再试" : "没有解析到有效账单，请确认文件格式");
+    else if (data.dupCount)
+      toast(`解析到 ${data.count} 条，其中 ${data.dupCount} 条与已有账单重复（导入时将跳过）`);
     else toast(`解析到 ${data.count} 条`);
   } catch (e) {
     toast(e.message);
@@ -74,7 +78,9 @@ async function confirm() {
   importing.value = true;
   try {
     const { data } = await api.post("/import/confirm", { items: items.value });
-    toast(`成功导入 ${data.imported} 条`);
+    let msg = `成功导入 ${data.imported} 条`;
+    if (data.skipped) msg += `，跳过 ${data.skipped} 条重复`;
+    toast(msg);
     items.value = [];
     file.value = null;
   } catch (e) {
@@ -164,21 +170,25 @@ const incomeCount = () => items.value.filter((x) => x.type === "income").length;
           <span>共 <b>{{ items.length }}</b> 条</span>
           <span>支出 <b class="expense">{{ expenseCount() }}</b></span>
           <span>收入 <b class="income">{{ incomeCount() }}</b></span>
+          <span v-if="dupCount" class="dup-hint">⚠️ {{ dupCount }} 条与已有账单重复，导入时将自动跳过</span>
           <div class="spacer"></div>
-          <button class="btn btn-primary" :disabled="importing" @click="confirm">{{ importing ? "导入中…" : `确认导入 ${items.length} 条` }}</button>
+          <button class="btn btn-primary" :disabled="importing" @click="confirm">{{ importing ? "导入中…" : `确认导入 ${items.length - dupCount} 条` }}</button>
         </div>
         <div class="prev-table card" style="padding:0">
           <table class="tbl">
             <thead><tr><th>时间</th><th>类型</th><th>分类</th><th class="hide-mobile">名称</th><th class="hide-mobile">支付方式</th><th style="text-align:right">金额</th><th></th></tr></thead>
             <tbody>
-              <tr v-for="(it,i) in items" :key="i">
+              <tr v-for="(it,i) in items" :key="i" :class="{ 'dup-row': it.dup }">
                 <td class="muted">{{ dayjs(it.flow_time).format("MM-DD HH:mm") }}</td>
                 <td :class="it.type">{{ it.type === "expense" ? "支出" : "收入" }}</td>
-                <td><input class="input mini" v-model="it.category" /></td>
+                <td><input class="input mini" v-model="it.category" :disabled="it.dup" /></td>
                 <td class="hide-mobile muted ellip">{{ it.description }}</td>
                 <td class="hide-mobile muted">{{ it.payment_method }}</td>
                 <td style="text-align:right" :class="it.type"><b>{{ Number(it.amount).toFixed(2) }}</b></td>
-                <td><button class="btn btn-sm btn-danger" @click="removeItem(i)">×</button></td>
+                <td>
+                  <span v-if="it.dup" class="tag dup-tag">重复</span>
+                  <button v-else class="btn btn-sm btn-danger" @click="removeItem(i)">×</button>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -204,6 +214,9 @@ const incomeCount = () => items.value.filter((x) => x.type === "income").length;
 .mini { padding: 5px 8px; font-size: 13px; width: 90px; }
 .ellip { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prev-table { max-height: 420px; overflow: auto; }
+.dup-hint { color: #e8590c; font-size: 13px; font-weight: 600; }
+.dup-row { background: #fff5f0; }
+.dup-tag { color: #e8590c; border: 1px solid #ffd8bf; background: #fff0e6; }
 .map-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .map-field .select { width: 160px; }
 </style>
