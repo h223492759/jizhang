@@ -18,6 +18,7 @@ const routes = [
       { path: "presets", name: "presets", component: () => import("./views/Presets.vue") },
       { path: "users", name: "users", component: () => import("./views/Users.vue"), meta: { admin: true } },
       { path: "settings", name: "settings", component: () => import("./views/Settings.vue") },
+      { path: "about", name: "about", component: () => import("./views/About.vue") },
     ],
   },
 ];

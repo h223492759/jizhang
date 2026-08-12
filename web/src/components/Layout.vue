@@ -22,6 +22,7 @@ const allNav = [
   { name: "presets", label: "常用名称", icon: "🔖" },
   { name: "users", label: "用户管理", icon: "👥", admin: true },
   { name: "settings", label: "设置", icon: "⚙️" },
+  { name: "about", label: "关于", icon: "ℹ️" },
 ];
 // 「用户管理」只对管理员显示
 const nav = computed(() =>

@@ -45,6 +45,9 @@ COPY package.json ./
 COPY server/ ./server/
 COPY --from=web-builder /app/web/dist ./web/dist
 
+# 构建时写入版本号（vYYMMDD-HHMM），「关于」页读取展示
+RUN echo "v$(date +%y%m%d-%H%M)" > /app/VERSION
+
 # SQLite 数据目录（compose 里会挂载到宿主机）
 RUN mkdir -p /app/data
 

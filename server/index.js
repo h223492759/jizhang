@@ -13,6 +13,7 @@ import importRoutes from "./routes/importer.js";
 import aiRoutes from "./routes/ai.js";
 import userRoutes from "./routes/users.js";
 import presetRoutes from "./routes/presets.js";
+import { APP_VERSION } from "./version.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -22,6 +23,7 @@ ensureAdmin();
 
 // ---------- API ----------
 app.get("/api/health", (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+app.get("/api/meta", (req, res) => res.json({ name: "记账本", version: APP_VERSION }));
 app.use("/api/auth", authRoutes);
 app.use("/api/books", bookRoutes);
 app.use("/api/categories", categoryRoutes);
