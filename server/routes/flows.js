@@ -11,6 +11,22 @@ r.use(auth);
 const ATTR_SQL = "COALESCE(u.nickname, f.attribution)";
 const FROM_SQL = "FROM flows f LEFT JOIN users u ON u.id = f.attribution_uid";
 
+// 记账时间处理：
+// - 前端只让用户选「日期」，时分秒由系统按保存/修改时刻自动补上
+// - 若上游已带完整时分秒（如导入 / AI 记账），则原样保留不动
+// - fallbackDate 用于编辑时上游没传日期的情况，沿用原记录的日期
+function stampSaveTime(input, fallbackDate) {
+  const s = input ? String(input).trim() : "";
+  if (s.length > 10 && s.includes(":")) {
+    return dayjs(s).format("YYYY-MM-DD HH:mm:ss");
+  }
+  const d = (s || fallbackDate || "").slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    return `${d} ${dayjs().format("HH:mm:ss")}`;
+  }
+  return dayjs().format("YYYY-MM-DD HH:mm:ss");
+}
+
 /**
  * 把前端传来的归属人解析成 { uid, text }
  * - 传 attribution_uid 且是本账本成员 → 直接用
@@ -124,9 +140,7 @@ r.post(
     const amount = Number(b.amount);
     if (!amount || amount <= 0)
       return res.status(400).json({ error: "金额必须大于0" });
-    const flow_time = b.flow_time
-      ? dayjs(b.flow_time).format("YYYY-MM-DD HH:mm:ss")
-      : dayjs().format("YYYY-MM-DD HH:mm:ss");
+    const flow_time = stampSaveTime(b.flow_time);
     const attr = resolveAttribution(req.bookId, req.user, b);
     const info = db
       .prepare(
@@ -254,7 +268,7 @@ r.put(
       (b.category || cur.category).trim(),
       (b.payment_method ?? cur.payment_method).trim(),
       (b.description ?? cur.description).trim(),
-      b.flow_time ? dayjs(b.flow_time).format("YYYY-MM-DD HH:mm:ss") : cur.flow_time,
+      stampSaveTime(b.flow_time, cur.flow_time),
       attrText,
       attrUid,
       cur.id

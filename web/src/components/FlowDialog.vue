@@ -21,7 +21,7 @@ function blank() {
     category: "",
     payment_method: "",
     description: "",
-    flow_time: dayjs().format("YYYY-MM-DDTHH:mm"),
+    flow_time: dayjs().format("YYYY-MM-DD"),
     attribution: "",
     attribution_uid: null,
   };
@@ -126,10 +126,10 @@ watch(
   (v) => {
     if (!v) return;
     if (props.flow) {
-      form.value = {
-        ...props.flow,
-        flow_time: dayjs(props.flow.flow_time).format("YYYY-MM-DDTHH:mm"),
-      };
+        form.value = {
+          ...props.flow,
+          flow_time: dayjs(props.flow.flow_time).format("YYYY-MM-DD"),
+        };
     } else {
       form.value = {
         ...blank(),
@@ -211,8 +211,8 @@ function close() {
 
       <div class="row">
         <label class="field" style="flex: 1">
-          <span>时间</span>
-          <input class="input" type="datetime-local" v-model="form.flow_time" />
+          <span>日期</span>
+          <input class="input" type="date" v-model="form.flow_time" />
         </label>
         <label class="field" style="flex: 1">
           <span>支付方式</span>

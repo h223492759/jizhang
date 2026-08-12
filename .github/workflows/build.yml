@@ -47,6 +47,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: 计算版本号（发布时间，北京时间 vYYMMDD-HHMM）
+        id: ver
+        run: echo "APP_VERSION=v$(TZ=Asia/Shanghai date +%y%m%d-%H%M)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push (amd64 + arm64)
         uses: docker/build-push-action@v6
         with:
@@ -56,6 +60,8 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
             ghcr.io/${{ github.repository }}:latest
+          build-args: |
+            APP_VERSION=${{ steps.ver.outputs.APP_VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
