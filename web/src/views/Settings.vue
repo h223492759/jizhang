@@ -15,17 +15,34 @@ const aiForm = reactive({ provider: "", baseUrl: "", apiKey: "", model: "", imag
 const aiStatus = ref({ enabled: false });
 const aiSaving = ref(false);
 
-// 常见服务商预设（智谱免费文本 glm-4-flash、免费视觉 glm-4v-flash）
-const PROVIDERS = {
-  zhipu: { label: "智谱 AI（BigModel）", baseUrl: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4-flash", imageModel: "glm-4v-flash" },
-  openai: { label: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini", imageModel: "gpt-4o-mini" },
-  deepseek: { label: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat", imageModel: "" },
-  qwen: { label: "通义千问（DashScope）", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus", imageModel: "qwen-vl-plus" },
-  custom: { label: "自定义 / 其他 OpenAI 兼容", baseUrl: "", model: "", imageModel: "" },
-};
+// 常见服务商预设（均为 OpenAI 兼容 /chat/completions 接口）
+// 选「自定义」可填写任意 OpenAI 兼容接口（自建网关、其他厂商等），地址与模型自由填。
+const PROVIDER_GROUPS = [
+  { group: "国内服务商", items: [
+    { key: "zhipu", label: "智谱 AI（BigModel）", baseUrl: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4-flash", imageModel: "glm-4v-flash" },
+    { key: "deepseek", label: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat", imageModel: "" },
+    { key: "qwen", label: "通义千问（DashScope）", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus", imageModel: "qwen-vl-plus" },
+    { key: "moonshot", label: "月之暗面 Kimi", baseUrl: "https://api.moonshot.cn/v1", model: "moonshot-v1-8k", imageModel: "" },
+    { key: "siliconflow", label: "硅基流动 SiliconFlow", baseUrl: "https://api.siliconflow.cn/v1", model: "deepseek-ai/DeepSeek-V3", imageModel: "" },
+    { key: "baichuan", label: "百川智能", baseUrl: "https://api.baichuan-ai.com/v1", model: "Baichuan4", imageModel: "" },
+    { key: "minimax", label: "MiniMax", baseUrl: "https://api.minimax.chat/v1", model: "abab6.5s-chat", imageModel: "" },
+    { key: "stepfun", label: "阶跃星辰 StepFun", baseUrl: "https://api.stepfun.com/v1", model: "step-1.5-flash", imageModel: "" },
+    { key: "doubao", label: "火山方舟（豆包）", baseUrl: "https://ark.cn-beijing.volces.com/api/v3", model: "", imageModel: "" },
+  ]},
+  { group: "海外 & 兼容", items: [
+    { key: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini", imageModel: "gpt-4o-mini" },
+    { key: "openrouter", label: "OpenRouter（聚合多家）", baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini", imageModel: "" },
+    { key: "gemini", label: "Google Gemini（兼容端点）", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-1.5-flash", imageModel: "gemini-1.5-flash" },
+    { key: "ollama", label: "本地 Ollama", baseUrl: "http://localhost:11434/v1", model: "llama3", imageModel: "" },
+  ]},
+  { group: "其他", items: [
+    { key: "custom", label: "自定义 / 其他 OpenAI 兼容接口", baseUrl: "", model: "", imageModel: "" },
+  ]},
+];
+const PROVIDER_MAP = Object.fromEntries(PROVIDER_GROUPS.flatMap((g) => g.items.map((i) => [i.key, i])));
 
 function onProvider() {
-  const p = PROVIDERS[aiForm.provider];
+  const p = PROVIDER_MAP[aiForm.provider];
   if (p) {
     aiForm.baseUrl = p.baseUrl;
     aiForm.model = p.model;
@@ -111,16 +128,18 @@ async function savePwd() {
       <div class="section-title">AI 记账设置</div>
       <p class="muted" style="font-size:13px;margin:0 0 14px;line-height:1.7">
         配置后可在「AI 记账」页用一句话或一张小票截图自动记账。<br />
-        例如使用<b>智谱</b>的免费模型：文本用 <code>glm-4-flash</code>、图片/视觉用 <code>glm-4v-flash</code>，在
-        <a href="https://open.bigmodel.cn" target="_blank" rel="noreferrer">开放平台</a> 拿到 API Key 填到下方即可。
+        已内置多家服务商预设（智谱 / DeepSeek / 通义千问 / Kimi / 硅基流动 / 百川 / MiniMax / 阶跃 / 火山方舟 / OpenAI / OpenRouter / Gemini / 本地 Ollama 等），<b>选一个会自动填好地址与模型</b>；也可选「自定义」填你自己的任意 OpenAI 兼容接口。<br />
+        例：<b>智谱</b>免费模型文本 <code>glm-4-flash</code>、图片 <code>glm-4v-flash</code>，在
+        <a href="https://open.bigmodel.cn" target="_blank" rel="noreferrer">开放平台</a> 拿到 Key 填下方即可。
       </p>
 
       <div class="row form-row">
-        <label class="field" style="flex:1;min-width:200px">
+        <label class="field" style="flex:1;min-width:220px">
           <span>服务商（预设）</span>
           <select class="select" v-model="aiForm.provider" @change="onProvider">
-            <option value="">自定义</option>
-            <option v-for="(v, k) in PROVIDERS" :key="k" :value="k">{{ v.label }}</option>
+            <optgroup v-for="g in PROVIDER_GROUPS" :key="g.group" :label="g.group">
+              <option v-for="p in g.items" :key="p.key" :value="p.key">{{ p.label }}</option>
+            </optgroup>
           </select>
         </label>
         <label class="field" style="flex:2;min-width:240px">
@@ -128,6 +147,9 @@ async function savePwd() {
           <input class="input" v-model.trim="aiForm.baseUrl" placeholder="https://open.bigmodel.cn/api/paas/v4" />
         </label>
       </div>
+      <p class="muted" style="font-size:12.5px;margin:-4px 0 14px;line-height:1.6">
+        选「自定义 / 其他 OpenAI 兼容接口」可填写<strong>任意</strong> OpenAI 风格地址（自建模型网关、其他厂商等），模型名按该平台实际填写即可。
+      </p>
 
       <div class="row form-row">
         <label class="field" style="flex:2;min-width:240px">

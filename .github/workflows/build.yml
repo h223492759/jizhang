@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 env:
@@ -27,6 +27,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up QEMU (交叉编译 arm64)
         uses: docker/setup-qemu-action@v3
@@ -59,7 +62,9 @@ jobs:
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ steps.ver.outputs.APP_VERSION }}
             ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ steps.ver.outputs.APP_VERSION }}
           build-args: |
             APP_VERSION=${{ steps.ver.outputs.APP_VERSION }}
           cache-from: type=gha
@@ -74,3 +79,22 @@ jobs:
             https://api.github.com/user/packages/container/jizhang/visibility \
             -d '{"visibility":"public"}' \
             || echo "若失败，请到 GitHub -> Packages -> jizhang -> Settings 把可见性改为 Public"
+
+      - name: 创建 / 更新 GitHub Release（与镜像同步）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.ver.outputs.APP_VERSION }}"
+          DH="${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}"
+          REPO="${{ github.repository }}"
+          PREV=$(git tag --sort=-creatordate | head -1)
+          if [ -n "$PREV" ] && [ "$PREV" != "$TAG" ]; then RANGE="$PREV..HEAD"; else RANGE="HEAD"; fi
+          LOG=$(git log --no-merges --pretty=format:"- %s" -n 25 "$RANGE")
+          BODY=$'## 镜像（构建于 '"$TAG"$'\n\n- Docker Hub：docker pull '"$DH"$':latest  或  docker pull '"$DH"$':'"$TAG"$'\n- GHCR：docker pull ghcr.io/'"$REPO"$':latest  或  docker pull ghcr.io/'"$REPO"$':'"$TAG"$'\n\n## 本次更新\n'"$LOG"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG 已存在，更新说明"
+            gh release edit "$TAG" --notes "$BODY"
+          else
+            echo "创建 Release $TAG"
+            gh release create "$TAG" --title "$TAG" --latest --notes "$BODY"
+          fi
