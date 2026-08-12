@@ -138,6 +138,11 @@ const willImport = computed(
   () => items.value.filter((it) => !it.dup || dupAction.value === "import" || it.force).length
 );
 const willSkip = computed(() => items.value.length - willImport.value);
+// 展示用：重复项排到最前面并高亮，方便一眼找到；其余保持原始顺序
+const displayItems = computed(() => {
+  const arr = items.value.map((it, i) => ({ it, i }));
+  return arr.sort((a, b) => (a.it.dup ? 0 : 1) - (b.it.dup ? 0 : 1));
+});
 </script>
 
 <template>
@@ -204,20 +209,24 @@ const willSkip = computed(() => items.value.length - willImport.value);
 
         <div class="prev-table card" style="padding:0">
           <table class="tbl">
-            <thead><tr><th>时间</th><th>类型</th><th>分类</th><th class="hide-mobile">名称</th><th class="hide-mobile">支付方式</th><th style="text-align:right">金额</th><th></th></tr></thead>
+            <thead><tr><th>时间</th><th>类型</th><th>分类</th><th class="hide-mobile">名称</th><th style="text-align:right">金额</th><th class="hide-mobile">支付方式</th><th class="hide-mobile">归属人</th><th></th></tr></thead>
             <tbody>
-              <tr v-for="(it,i) in items" :key="i" :class="{ 'dup-row': it.dup }">
-                <td class="muted">{{ dayjs(it.flow_time).format("MM-DD HH:mm") }}</td>
-                <td :class="it.type">{{ it.type === "expense" ? "支出" : "收入" }}</td>
-                <td><input class="input mini" v-model="it.category" :disabled="it.dup && dupAction === 'skip' && !it.force" /></td>
-                <td class="hide-mobile muted ellip">{{ it.description }}</td>
-                <td class="hide-mobile muted">{{ it.payment_method }}</td>
-                <td style="text-align:right" :class="it.type"><b>{{ Number(it.amount).toFixed(2) }}</b></td>
+              <tr v-for="row in displayItems" :key="row.i" :class="{ 'dup-row': row.it.dup }">
+                <td class="muted">{{ dayjs(row.it.flow_time).format("MM-DD HH:mm") }}</td>
+                <td :class="row.it.type">{{ row.it.type === "expense" ? "支出" : "收入" }}</td>
+                <td><input class="input mini" v-model="row.it.category" :disabled="row.it.dup && dupAction === 'skip' && !row.it.force" /></td>
+                <td class="hide-mobile muted ellip">{{ row.it.description }}</td>
+                <td style="text-align:right" :class="row.it.type"><b>{{ Number(row.it.amount).toFixed(2) }}</b></td>
+                <td class="hide-mobile muted">{{ row.it.payment_method }}</td>
+                <td class="hide-mobile muted">{{ row.it.attribution || "—" }}</td>
                 <td>
-                  <label v-if="it.dup" class="dup-force" :title="dupAction === 'import' ? '已选择全部导入' : '勾选则这一条仍导入'">
-                    <input type="checkbox" v-model="it.force" :disabled="dupAction === 'import'" /> 仍导入
-                  </label>
-                  <button v-else class="btn btn-sm btn-danger" @click="removeItem(i)">×</button>
+                  <template v-if="row.it.dup">
+                    <span class="dup-tag">重复</span>
+                    <label class="dup-force" :title="dupAction === 'import' ? '已选择全部导入' : '勾选则这一条仍导入'">
+                      <input type="checkbox" v-model="row.it.force" :disabled="dupAction === 'import'" /> 仍导入
+                    </label>
+                  </template>
+                  <button v-else class="btn btn-sm btn-danger" @click="removeItem(row.i)">×</button>
                 </td>
               </tr>
             </tbody>
@@ -244,7 +253,9 @@ const willSkip = computed(() => items.value.length - willImport.value);
 .mini { padding: 5px 8px; font-size: 13px; width: 90px; }
 .ellip { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prev-table { max-height: 420px; overflow: auto; }
-.dup-row { background: #fff5f0; }
+.dup-row { background: #ffe8d6; }
+.dup-row td:first-child { border-left: 3px solid #e8590c; }
+.dup-tag { display: inline-block; font-size: 11px; font-weight: 700; color: #fff; background: #e8590c; border-radius: 4px; padding: 1px 6px; margin-right: 4px; }
 .dup-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 4px 0 10px; padding: 10px 12px; background: #fff8f3; border: 1px solid #ffd8bf; border-radius: 10px; font-size: 13px; color: #8a4b00; }
 .seg { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border: 1px solid #ffd8bf; border-radius: 8px; cursor: pointer; user-select: none; background: #fff; }
 .seg.on { background: #e8590c; color: #fff; border-color: #e8590c; }
