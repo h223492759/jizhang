@@ -170,6 +170,12 @@ r.get(
       )
       .all(req.bookId)
       .map((x) => x.y);
+    const months = db
+      .prepare(
+        "SELECT DISTINCT substr(flow_time,1,7) AS m FROM flows WHERE book_id=? ORDER BY m DESC"
+      )
+      .all(req.bookId)
+      .map((x) => x.m);
     const attributions = db
       .prepare(
         `SELECT DISTINCT ${ATTR_EXPR} AS attribution FROM flows
@@ -177,7 +183,7 @@ r.get(
       )
       .all(req.bookId)
       .map((x) => x.attribution);
-    res.json({ years, attributions });
+    res.json({ years, months, attributions });
   })
 );
 

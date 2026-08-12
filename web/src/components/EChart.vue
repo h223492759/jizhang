@@ -4,13 +4,17 @@ import * as echarts from "echarts";
 import { useStore } from "../store.js";
 
 const props = defineProps({ option: { type: Object, required: true }, height: { type: String, default: "300px" } });
+const emit = defineEmits(["click"]);
 const store = useStore();
 const el = ref(null);
 let chart = null;
 
 function render() {
   if (!el.value) return;
-  if (!chart) chart = echarts.init(el.value, store.theme === "dark" ? "dark" : null);
+  if (!chart) {
+    chart = echarts.init(el.value, store.theme === "dark" ? "dark" : null);
+    chart.on("click", (params) => emit("click", params));
+  }
   chart.setOption(props.option, true);
 }
 function resize() { chart && chart.resize(); }

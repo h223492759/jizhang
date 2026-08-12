@@ -65,6 +65,7 @@ r.get(
       end,
       type,
       category,
+      payment,
       attribution,
       keyword,
       page = 1,
@@ -77,6 +78,7 @@ r.get(
     if (end) { where.push("f.flow_time <= @end"); p.end = end + " 23:59:59"; }
     if (type) { where.push("f.type = @type"); p.type = type; }
     if (category) { where.push("f.category = @category"); p.category = category; }
+    if (payment) { where.push("(f.payment_method = @payment OR (@payment='未标注' AND f.payment_method=''))"); p.payment = payment; }
     if (attribution) { where.push(`${ATTR_SQL} = @attribution`); p.attribution = attribution; }
     if (keyword) { where.push("f.description LIKE @kw"); p.kw = `%${keyword}%`; }
     const w = "WHERE " + where.join(" AND ");
