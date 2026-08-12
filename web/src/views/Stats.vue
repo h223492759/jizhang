@@ -107,26 +107,40 @@ const monthlyOpt = computed(() => ({
   xAxis: { type: "category", data: monthly.value.map((m) => m.month.slice(5) + "月") },
   yAxis: { type: "value" },
   series: [
-    { name: "支出", type: "bar", data: monthly.value.map((m) => m.expense), itemStyle: { color: "#ef4444", borderRadius: [4,4,0,0] } },
-    { name: "收入", type: "bar", data: monthly.value.map((m) => m.income), itemStyle: { color: "#10b981", borderRadius: [4,4,0,0] } },
+    { name: "支出", type: "bar", cursor: "pointer", data: monthly.value.map((m) => m.expense), itemStyle: { color: "#ef4444", borderRadius: [4,4,0,0] } },
+    { name: "收入", type: "bar", cursor: "pointer", data: monthly.value.map((m) => m.income), itemStyle: { color: "#10b981", borderRadius: [4,4,0,0] } },
   ],
 }));
 
 function fmt(n) { return "¥" + Number(n||0).toLocaleString("zh-CN",{minimumFractionDigits:2,maximumFractionDigits:2}); }
 
-// ---------------- 饼图点击 → 查看该维度明细 ----------------
+// ---------------- 图表点击 → 查看明细 ----------------
 const detail = ref({ open: false, title: "", rows: [], total: 0, loading: false });
+const sortField = ref("amount"); // amount | time
+const sortOrder = ref("desc");   // desc | asc
+
+// 饼图：按维度（分类/支付方式/归属人）查看明细
 async function onPieClick(params) {
   const dim = PIE_DIM[params.seriesName];
   if (!dim || !params.name) return;
-  openDetail(dim, params.name);
+  await openDetail(`${params.name}（按${DIM_LABEL[dim]}）`, { ...period.value, type: "expense", [dim]: params.name, pageSize: 300 });
 }
-async function openDetail(dim, name) {
-  detail.value = { open: true, title: `${name}（按${DIM_LABEL[dim]}）`, rows: [], total: 0, loading: true };
-  const q = { ...period.value, type: "expense", pageSize: 300 };
-  q[dim] = name;
+// 柱状图：按某月 + 收/支 查看明细
+async function onBarClick(params) {
+  const m = monthly.value[params.dataIndex];
+  if (!m) return;
+  const type = params.seriesName === "收入" ? "income" : "expense";
+  const start = `${m.month}-01`;
+  const end = dayjs(start).endOf("month").format("YYYY-MM-DD");
+  await openDetail(`${m.month} ${type === "income" ? "收入" : "支出"}`, { start, end, type, pageSize: 300 });
+}
+
+async function openDetail(title, query) {
+  detail.value = { open: true, title, rows: [], total: 0, loading: true };
+  sortField.value = "amount";
+  sortOrder.value = "desc";
   try {
-    const { data } = await api.get("/flows", { params: q });
+    const { data } = await api.get("/flows", { params: query });
     detail.value.rows = data.list;
     detail.value.total = data.total;
   } catch (e) {
@@ -134,6 +148,22 @@ async function openDetail(dim, name) {
   } finally {
     detail.value.loading = false;
   }
+}
+
+// 明细排序：默认金额降序；可切时间；时间顺序/逆序可切换
+const detailSum = computed(() => detail.value.rows.reduce((s, f) => s + Number(f.amount || 0), 0));
+const sortedRows = computed(() => {
+  const rows = [...detail.value.rows];
+  const dir = sortOrder.value === "desc" ? -1 : 1;
+  rows.sort((a, b) => {
+    if (sortField.value === "amount") return (Number(b.amount) - Number(a.amount)) * dir;
+    return (new Date(a.flow_time).getTime() - new Date(b.flow_time).getTime()) * dir;
+  });
+  return rows;
+});
+function pct(f) {
+  if (!detailSum.value) return "0%";
+  return ((Number(f.amount) / detailSum.value) * 100).toFixed(1) + "%";
 }
 </script>
 
@@ -180,33 +210,39 @@ async function openDetail(dim, name) {
       </div>
     </div>
 
-    <div class="card" style="margin-top:16px">
+    <div class="card clickable-hint" style="margin-top:16px">
       <div class="section-title">{{ year }} 年每月流水</div>
-      <EChart :option="monthlyOpt" :height="'300px'" />
+      <EChart :option="monthlyOpt" :height="'300px'" @click="onBarClick" />
     </div>
 
-    <!-- 饼图项点击后的明细弹窗 -->
+    <!-- 饼图 / 柱形点击后的明细弹窗 -->
     <div v-if="detail.open" class="modal-mask" @click.self="detail.open=false">
       <div class="modal">
         <div class="modal-head">
           <b>{{ detail.title }}</b>
-          <span class="muted">共 {{ detail.total }} 笔</span>
+          <span class="muted">共 {{ detail.total }} 笔 · 合计 {{ fmt(detailSum) }}</span>
+          <div class="seg sm">
+            <button :class="{on:sortField==='amount'}" @click="sortField='amount'">按金额</button>
+            <button :class="{on:sortField==='time'}" @click="sortField='time'">按时间</button>
+            <button @click="sortOrder = sortOrder==='desc'?'asc':'desc'">{{ sortOrder==='desc'?'↓ 降序':'↑ 升序' }}</button>
+          </div>
           <button class="btn btn-sm" @click="detail.open=false">关闭</button>
         </div>
         <div class="modal-body">
           <div v-if="detail.loading" class="muted" style="padding:24px;text-align:center">加载中…</div>
-          <table v-else-if="detail.rows.length" class="tbl">
-            <thead><tr><th>时间</th><th>分类</th><th class="hide-mobile">名称</th><th style="text-align:right">金额</th></tr></thead>
+          <table v-else-if="sortedRows.length" class="tbl">
+            <thead><tr><th>时间</th><th>分类</th><th class="hide-mobile">名称</th><th style="text-align:right">金额</th><th style="text-align:right">占比</th></tr></thead>
             <tbody>
-              <tr v-for="f in detail.rows" :key="f.id">
+              <tr v-for="f in sortedRows" :key="f.id">
                 <td class="muted">{{ dayjs(f.flow_time).format("MM-DD HH:mm") }}</td>
                 <td>{{ f.category }}</td>
                 <td class="hide-mobile muted ellip">{{ f.description }}</td>
                 <td style="text-align:right" :class="f.type"><b>{{ Number(f.amount).toFixed(2) }}</b></td>
+                <td style="text-align:right" class="muted">{{ pct(f) }}</td>
               </tr>
             </tbody>
           </table>
-          <div v-else class="muted" style="padding:24px;text-align:center">该分类下没有流水</div>
+          <div v-else class="muted" style="padding:24px;text-align:center">没有匹配的流水</div>
         </div>
       </div>
     </div>
@@ -233,8 +269,10 @@ export default { components: { EChart } };
 
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
 .modal { background: var(--surface); color: var(--text); width: min(640px, 100%); max-height: 80vh; border-radius: 14px; display: flex; flex-direction: column; box-shadow: var(--shadow); overflow: hidden; }
-.modal-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--surface-2); }
+.modal-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--surface-2); flex-wrap: wrap; }
 .modal-head .muted { font-size: 13px; }
+.seg.sm { padding: 2px; }
+.seg.sm button { padding: 4px 10px; font-size: 12px; border-radius: 6px; }
 .modal-head .btn { margin-left: auto; }
 .modal-body { padding: 8px 16px 16px; overflow: auto; }
 .modal-body .tbl th, .modal-body .tbl td { padding: 7px 8px; font-size: 13px; }
