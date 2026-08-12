@@ -23,32 +23,34 @@ r.post(
       try { mapping = JSON.parse(req.body.mapping); } catch { mapping = null; }
     }
     const result = parseBill(req.file.buffer, { source, mapping });
-    // 与「本账本已有账单」比对，标记重复项（导入时会跳过）
+    // 查重：与「本账本已有账单」+「本文件内其他行」比对，标记重复项。
+    // 仅做标记，是否跳过由用户在预览里决定（重复可能是同一笔，也可能是不同笔）。
     const seen = loadBookDedupKeys(req.bookId);
     let dupCount = 0;
     for (const it of result.items) {
-      const dup = seen.has(flowDedupKey(it));
-      it.dup = dup;
-      if (dup) dupCount++;
+      const key = flowDedupKey(it);
+      if (seen.has(key)) { it.dup = true; dupCount++; }
+      else { it.dup = false; seen.add(key); } // 本文件内后续相同行也标为重复
     }
     res.json({
       count: result.items.length,
       dupCount,
-      items: result.items.slice(0, 1000),
+      items: result.items,
       headers: result.headers,
       detectedMapping: result.mapping,
     });
   })
 );
 
-// 确认导入：把前端确认后的条目写入（自动跳过与已有账单重复的记录）
+// 确认导入：前端已在预览里决定哪些重复项保留/跳过，这里按传入清单写入
 r.post(
   "/confirm",
   requireBook,
   wrap((req, res) => {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     if (!items.length) return res.status(400).json({ error: "没有可导入的数据" });
-    const r = insertMany(req.bookId, req.user.id, req.user.nickname, items, req.user.id, { dedup: true });
+    // dedup:false —— 完全按前端传来的清单入库，不在后端自动跳过（避免误删用户决定保留的重复）
+    const r = insertMany(req.bookId, req.user.id, req.user.nickname, items, req.user.id, { dedup: false });
     res.json({ imported: r.imported, skipped: r.skipped });
   })
 );

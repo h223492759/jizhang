@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import dayjs from "dayjs";
 import api from "../api.js";
 import { toast } from "../toast.js";
@@ -9,6 +9,8 @@ const file = ref(null);
 const items = ref([]);
 const headers = ref([]);
 const dupCount = ref(0);
+// 重复项处理方式：skip=默认跳过；import=全部仍导入。每条重复行还可单独「仍导入」覆盖。
+const dupAction = ref("skip");
 const mapping = ref({});
 const loading = ref(false);
 const importing = ref(false);
@@ -48,15 +50,18 @@ async function preview() {
       headers: { "Content-Type": "multipart/form-data" },
     });
     items.value = data.items;
+    // 初始化每条重复行的「仍导入」覆盖标记
+    items.value.forEach((it) => { it.force = false; });
     headers.value = data.headers || [];
     dupCount.value = data.dupCount || 0;
+    dupAction.value = "skip"; // 每次重新解析都回到默认（跳过）
     if (source.value === "generic" && !Object.keys(mapping.value).length && data.detectedMapping) {
       mapping.value = { ...data.detectedMapping };
     }
     if (!data.items.length)
       toast(source.value === "generic" ? "未解析到数据，请手动映射列后再试" : "没有解析到有效账单，请确认文件格式");
     else if (data.dupCount)
-      toast(`解析到 ${data.count} 条，其中 ${data.dupCount} 条与已有账单重复（导入时将跳过）`);
+      toast(`解析到 ${data.count} 条，其中 ${data.dupCount} 条疑似重复，请选择是否导入`);
     else toast(`解析到 ${data.count} 条`);
   } catch (e) {
     toast(e.message);
@@ -75,14 +80,21 @@ function removeItem(i) {
 
 async function confirm() {
   if (!items.value.length) return;
+  // 按用户的选择筛出实际要导入的清单（重复且未选择保留的行不发送）
+  const eff = items.value.filter(
+    (it) => !it.dup || dupAction.value === "import" || it.force
+  );
+  if (!eff.length) return toast("没有要导入的账单");
   importing.value = true;
   try {
-    const { data } = await api.post("/import/confirm", { items: items.value });
+    const { data } = await api.post("/import/confirm", { items: eff, dedup: false });
     let msg = `成功导入 ${data.imported} 条`;
-    if (data.skipped) msg += `，跳过 ${data.skipped} 条重复`;
+    const skip = items.value.length - eff.length;
+    if (skip) msg += `，跳过 ${skip} 条重复`;
     toast(msg);
     items.value = [];
     file.value = null;
+    dupCount.value = 0;
   } catch (e) {
     toast(e.message);
   } finally {
@@ -121,6 +133,11 @@ async function importData(e) {
 
 const expenseCount = () => items.value.filter((x) => x.type === "expense").length;
 const incomeCount = () => items.value.filter((x) => x.type === "income").length;
+// 实际会导入 / 会跳过的条数（随重复处理方式和单条覆盖实时变化）
+const willImport = computed(
+  () => items.value.filter((it) => !it.dup || dupAction.value === "import" || it.force).length
+);
+const willSkip = computed(() => items.value.length - willImport.value);
 </script>
 
 <template>
@@ -170,10 +187,21 @@ const incomeCount = () => items.value.filter((x) => x.type === "income").length;
           <span>共 <b>{{ items.length }}</b> 条</span>
           <span>支出 <b class="expense">{{ expenseCount() }}</b></span>
           <span>收入 <b class="income">{{ incomeCount() }}</b></span>
-          <span v-if="dupCount" class="dup-hint">⚠️ {{ dupCount }} 条与已有账单重复，导入时将自动跳过</span>
           <div class="spacer"></div>
-          <button class="btn btn-primary" :disabled="importing" @click="confirm">{{ importing ? "导入中…" : `确认导入 ${items.length - dupCount} 条` }}</button>
+          <button class="btn btn-primary" :disabled="importing || !willImport" @click="confirm">{{ importing ? "导入中…" : `确认导入 ${willImport} 条` }}</button>
         </div>
+
+        <div v-if="dupCount" class="dup-bar">
+          <span>⚠️ 检测到 <b>{{ dupCount }}</b> 条疑似重复（与已有账单或本文件内重复）。重复可能是同一笔，也可能是不同的两笔，请选择：</span>
+          <label class="seg" :class="{ on: dupAction === 'skip' }">
+            <input type="radio" value="skip" v-model="dupAction" /> 跳过重复（默认）
+          </label>
+          <label class="seg" :class="{ on: dupAction === 'import' }">
+            <input type="radio" value="import" v-model="dupAction" /> 仍要导入
+          </label>
+          <span v-if="willSkip" class="muted" style="font-size:12px">将跳过 <b>{{ willSkip }}</b> 条</span>
+        </div>
+
         <div class="prev-table card" style="padding:0">
           <table class="tbl">
             <thead><tr><th>时间</th><th>类型</th><th>分类</th><th class="hide-mobile">名称</th><th class="hide-mobile">支付方式</th><th style="text-align:right">金额</th><th></th></tr></thead>
@@ -181,12 +209,14 @@ const incomeCount = () => items.value.filter((x) => x.type === "income").length;
               <tr v-for="(it,i) in items" :key="i" :class="{ 'dup-row': it.dup }">
                 <td class="muted">{{ dayjs(it.flow_time).format("MM-DD HH:mm") }}</td>
                 <td :class="it.type">{{ it.type === "expense" ? "支出" : "收入" }}</td>
-                <td><input class="input mini" v-model="it.category" :disabled="it.dup" /></td>
+                <td><input class="input mini" v-model="it.category" :disabled="it.dup && dupAction === 'skip' && !it.force" /></td>
                 <td class="hide-mobile muted ellip">{{ it.description }}</td>
                 <td class="hide-mobile muted">{{ it.payment_method }}</td>
                 <td style="text-align:right" :class="it.type"><b>{{ Number(it.amount).toFixed(2) }}</b></td>
                 <td>
-                  <span v-if="it.dup" class="tag dup-tag">重复</span>
+                  <label v-if="it.dup" class="dup-force" :title="dupAction === 'import' ? '已选择全部导入' : '勾选则这一条仍导入'">
+                    <input type="checkbox" v-model="it.force" :disabled="dupAction === 'import'" /> 仍导入
+                  </label>
                   <button v-else class="btn btn-sm btn-danger" @click="removeItem(i)">×</button>
                 </td>
               </tr>
@@ -214,9 +244,11 @@ const incomeCount = () => items.value.filter((x) => x.type === "income").length;
 .mini { padding: 5px 8px; font-size: 13px; width: 90px; }
 .ellip { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prev-table { max-height: 420px; overflow: auto; }
-.dup-hint { color: #e8590c; font-size: 13px; font-weight: 600; }
 .dup-row { background: #fff5f0; }
-.dup-tag { color: #e8590c; border: 1px solid #ffd8bf; background: #fff0e6; }
+.dup-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 4px 0 10px; padding: 10px 12px; background: #fff8f3; border: 1px solid #ffd8bf; border-radius: 10px; font-size: 13px; color: #8a4b00; }
+.seg { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border: 1px solid #ffd8bf; border-radius: 8px; cursor: pointer; user-select: none; background: #fff; }
+.seg.on { background: #e8590c; color: #fff; border-color: #e8590c; }
+.dup-force { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: #e8590c; cursor: pointer; }
 .map-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .map-field .select { width: 160px; }
 </style>
