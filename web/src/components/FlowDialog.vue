@@ -192,11 +192,6 @@ function close() {
       </div>
 
       <label class="field">
-        <span>金额</span>
-        <input class="input amount" :class="form.type" type="number" step="0.01" v-model="form.amount" placeholder="0.00" />
-      </label>
-
-      <label class="field">
         <span>分类</span>
         <div class="cat-grid">
           <button
@@ -220,6 +215,11 @@ function close() {
         </label>
       </div>
 
+      <label class="field">
+        <span>金额</span>
+        <input class="input amount" :class="form.type" type="number" step="0.01" v-model="form.amount" placeholder="0.00" />
+      </label>
+
       <div class="field">
         <span class="lbl-row">
           名称
@@ -227,7 +227,7 @@ function close() {
             {{ isPinned ? "★ 取消常用" : "☆ 设为常用" }}
           </a>
         </span>
-        <input class="input" v-model.trim="form.description" placeholder="这笔钱花在哪儿" />
+        <input class="input" v-model.trim="form.description" placeholder="这笔钱花在哪儿（留空则自动用分类名，如「餐饮」）" />
 
         <!-- 可点击的名称候选：常用置顶 → 高频 → 最近 -->
         <div class="sug" v-if="hasSug">

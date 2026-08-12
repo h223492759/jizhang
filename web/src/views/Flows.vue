@@ -104,14 +104,14 @@ function catIcon(name) {
       <table v-else class="tbl">
         <thead>
           <tr>
-            <th>分类</th><th class="hide-mobile">名称</th><th class="hide-mobile">时间</th><th class="hide-mobile">归属</th><th style="text-align:right">金额</th><th></th>
+            <th>分类</th><th class="hide-mobile">名称</th><th class="hide-mobile">日期</th><th class="hide-mobile">归属</th><th style="text-align:right">金额</th><th></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="f in data.list" :key="f.id">
             <td><span class="ic">{{ catIcon(f.category) }}</span>{{ f.category }}</td>
             <td class="hide-mobile muted">{{ f.description || "—" }}</td>
-            <td class="hide-mobile muted">{{ dayjs(f.flow_time).format("YYYY-MM-DD HH:mm") }}</td>
+            <td class="hide-mobile muted">{{ dayjs(f.flow_time).format("YYYY-MM-DD") }}</td>
             <td class="hide-mobile"><span class="tag">{{ f.attribution || "—" }}</span></td>
             <td style="text-align:right" :class="f.type"><b>{{ f.type === "expense" ? "-" : "+" }}{{ Number(f.amount).toFixed(2) }}</b></td>
             <td style="text-align:right;white-space:nowrap">

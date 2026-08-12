@@ -13,6 +13,7 @@ import importRoutes from "./routes/importer.js";
 import aiRoutes from "./routes/ai.js";
 import userRoutes from "./routes/users.js";
 import presetRoutes from "./routes/presets.js";
+import settingsRoutes from "./routes/settings.js";
 import { APP_VERSION } from "./version.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -35,6 +36,7 @@ app.use("/api/import", importRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/admin/users", userRoutes);
 app.use("/api/presets", presetRoutes);
+app.use("/api/settings", settingsRoutes);
 
 // ---------- 静态前端 ----------
 const webDist = path.resolve(__dirname, "../web/dist");

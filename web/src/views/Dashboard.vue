@@ -56,7 +56,7 @@ function changeMonth(delta) {
 }
 
 function quickAddOn(date) {
-  preset.value = { flow_time: dayjs(date).hour(12).format("YYYY-MM-DDTHH:mm") };
+  preset.value = { flow_time: dayjs(date).format("YYYY-MM-DD") };
   showDialog.value = true;
 }
 function onSaved() {
@@ -132,7 +132,7 @@ function catIcon(name) {
         <div class="ficon">{{ catIcon(f.category) }}</div>
         <div class="fmain">
           <div class="fcat">{{ f.category }}<span v-if="f.description" class="muted"> · {{ f.description }}</span></div>
-          <div class="muted ftime">{{ dayjs(f.flow_time).format("MM-DD HH:mm") }} · {{ f.attribution || "—" }}</div>
+          <div class="muted ftime">{{ dayjs(f.flow_time).format("MM-DD") }} · {{ f.attribution || "—" }}</div>
         </div>
         <div class="famt" :class="f.type">{{ f.type === "expense" ? "-" : "+" }}{{ Number(f.amount).toFixed(2) }}</div>
       </div>

@@ -39,13 +39,47 @@ function confirmResult() {
     category: result.value.category,
     payment_method: result.value.payment_method,
     description: result.value.description,
-    flow_time: dayjs().format("YYYY-MM-DDTHH:mm"),
+    flow_time: dayjs().format("YYYY-MM-DD"),
   };
   showDialog.value = true;
 }
 function onSaved() {
   result.value = null;
   text.value = "";
+}
+
+// 图片记账（小票 / 账单截图识别）
+const imgPreview = ref("");
+const imgText = ref("");
+const imgParsing = ref(false);
+function onImg(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => { imgPreview.value = reader.result; };
+  reader.readAsDataURL(file);
+}
+async function parseImage() {
+  if (!imgPreview.value) return toast("请先选择一张小票 / 账单图片");
+  imgParsing.value = true;
+  try {
+    const { data } = await api.post("/ai/parse-image", {
+      image: imgPreview.value,
+      text: imgText.value.trim(),
+    });
+    preset.value = {
+      type: data.type,
+      amount: data.amount,
+      category: data.category,
+      payment_method: data.payment_method,
+      description: data.description,
+      flow_time: dayjs().format("YYYY-MM-DD"),
+    };
+    showDialog.value = true;
+    imgPreview.value = "";
+    imgText.value = "";
+  } catch (e) { toast(e.message); }
+  finally { imgParsing.value = false; }
 }
 
 async function analyze() {
@@ -112,6 +146,28 @@ async function analyze() {
       <div v-else-if="!analyzing" class="muted" style="padding:10px 0">选择月份，点「生成分析」查看消费洞察与省钱建议。</div>
     </div>
 
+    <!-- 图片记账 -->
+    <div class="card" style="margin-top:16px">
+      <div class="section-title">📷 图片记账（小票 / 账单截图识别）</div>
+      <p class="muted" style="margin-top:-6px;font-size:13px">
+        {{ store.aiEnabled ? "上传一张小票或账单截图，AI 自动识别金额、分类与名称" : "未配置 AI 视觉模型（请在「设置 → AI 记账」里填写图片模型与密钥）" }}
+      </p>
+      <div class="row" style="gap:10px;align-items:flex-start;flex-wrap:wrap">
+        <label class="upload-box">
+          <input type="file" accept="image/*" @change="onImg" hidden />
+          <div v-if="!imgPreview" class="upload-inner">＋ 选择图片</div>
+          <img v-else :src="imgPreview" class="preview" alt="preview" />
+        </label>
+        <div style="flex:1;min-width:200px">
+          <input class="input" v-model.trim="imgText" placeholder="补充说明（可选），如：这是公司报销" style="width:100%" />
+          <button class="btn btn-primary" style="margin-top:8px" :disabled="imgParsing || !store.aiEnabled" @click="parseImage">
+            {{ imgParsing ? "识别中…" : "识别并记账" }}
+          </button>
+          <button class="btn" style="margin-top:8px;margin-left:8px" v-if="imgPreview" @click="imgPreview=''">重选</button>
+        </div>
+      </div>
+    </div>
+
     <FlowDialog v-model="showDialog" :preset="preset" @saved="onSaved" />
   </div>
 </template>
@@ -129,4 +185,8 @@ async function analyze() {
 .small { font-size: 12px; }
 .sum-row { display: flex; gap: 22px; margin-bottom: 12px; font-size: 14px; flex-wrap: wrap; }
 .analysis { white-space: pre-wrap; font-family: inherit; font-size: 14px; line-height: 1.8; background: var(--surface-2); padding: 16px; border-radius: 12px; margin: 0; }
+.upload-box { width: 140px; height: 140px; border: 2px dashed var(--border); border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; overflow: hidden; background: var(--surface-2); flex-shrink: 0; }
+.upload-box:hover { border-color: var(--primary); }
+.upload-inner { color: var(--text-2); font-size: 14px; }
+.preview { width: 100%; height: 100%; object-fit: cover; }
 </style>

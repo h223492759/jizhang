@@ -84,6 +84,11 @@ CREATE TABLE IF NOT EXISTS presets (
   created_at     TEXT NOT NULL DEFAULT (datetime('now','localtime')),
   UNIQUE (book_id, type, name)
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 `);
 
 // ---------------- 轻量迁移 ----------------
@@ -189,6 +194,26 @@ export function seedCategories(bookId) {
 export function ensureDefaultCategoriesForAllBooks() {
   const books = db.prepare("SELECT id FROM books").all();
   for (const b of books) seedCategories(b.id);
+}
+
+// ---------------- 全局设置（KV） ----------------
+// 用于持久化可在界面里修改的配置，例如 AI 记账（baseUrl/apiKey/模型等）。
+// 环境变量仍作为兜底，DB 里的值优先。
+export function getSetting(key, def = "") {
+  const row = db.prepare("SELECT value FROM settings WHERE key=?").get(key);
+  return row ? row.value : def;
+}
+export function setSetting(key, value) {
+  db.prepare(
+    `INSERT INTO settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+  ).run(key, String(value));
+}
+export function getAllSettings() {
+  const rows = db.prepare("SELECT key, value FROM settings").all();
+  const o = {};
+  for (const r of rows) o[r.key] = r.value;
+  return o;
 }
 
 // ---------------- 创建用户（含默认账本与分类） ----------------

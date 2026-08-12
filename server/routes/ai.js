@@ -2,14 +2,19 @@ import { Router } from "express";
 import dayjs from "dayjs";
 import { db } from "../db.js";
 import { auth, requireBook, wrap } from "../mw.js";
-import { parseFlowText, analyzeMonth, aiConfig } from "../lib/ai.js";
+import { parseFlowText, analyzeMonth, aiConfig, parseFlowImage } from "../lib/ai.js";
 
 const r = Router();
 r.use(auth);
 
 r.get("/status", (req, res) => {
   const c = aiConfig();
-  res.json({ enabled: c.enabled, model: c.enabled ? c.model : null });
+  res.json({
+    enabled: c.enabled,
+    provider: c.provider || null,
+    model: c.enabled ? c.model : null,
+    imageModel: c.enabled ? c.imageModel : null,
+  });
 });
 
 // 一句话解析（不入库，返回结果给前端确认）
@@ -27,6 +32,29 @@ r.post(
       res.json(result);
     } catch (e) {
       res.status(500).json({ error: e.message });
+    }
+  }
+);
+
+// 图片解析（小票 / 账单截图识别，使用视觉模型）
+r.post(
+  "/parse-image",
+  requireBook,
+  async (req, res) => {
+    try {
+      const { image, text } = req.body || {};
+      if (!image) return res.status(400).json({ error: "请上传图片" });
+      const cats = db
+        .prepare("SELECT name, type FROM categories WHERE book_id=?")
+        .all(req.bookId);
+      const result = await parseFlowImage(image, text, cats);
+      res.json(result);
+    } catch (e) {
+      const msg =
+        e.message === "NO_AI"
+          ? "未配置 AI 视觉模型，请先在「设置 → AI 记账」里填写图片模型与密钥"
+          : e.message;
+      res.status(e.message === "NO_AI" ? 400 : 500).json({ error: msg });
     }
   }
 );

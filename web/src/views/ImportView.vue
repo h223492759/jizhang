@@ -209,10 +209,10 @@ const displayItems = computed(() => {
 
         <div class="prev-table card" style="padding:0">
           <table class="tbl">
-            <thead><tr><th>时间</th><th>类型</th><th>分类</th><th class="hide-mobile">名称</th><th style="text-align:right">金额</th><th class="hide-mobile">支付方式</th><th class="hide-mobile">归属人</th><th></th></tr></thead>
-            <tbody>
-              <tr v-for="row in displayItems" :key="row.i" :class="{ 'dup-row': row.it.dup }">
-                <td class="muted">{{ dayjs(row.it.flow_time).format("MM-DD HH:mm") }}</td>
+        <thead><tr><th>日期</th><th>类型</th><th>分类</th><th class="hide-mobile">名称</th><th style="text-align:right">金额</th><th class="hide-mobile">支付方式</th><th class="hide-mobile">归属人</th><th></th></tr></thead>
+        <tbody>
+          <tr v-for="row in displayItems" :key="row.i" :class="{ 'dup-row': row.it.dup }">
+            <td class="muted">{{ dayjs(row.it.flow_time).format("YYYY-MM-DD") }}</td>
                 <td :class="row.it.type">{{ row.it.type === "expense" ? "支出" : "收入" }}</td>
                 <td><input class="input mini" v-model="row.it.category" :disabled="row.it.dup && dupAction === 'skip' && !row.it.force" /></td>
                 <td class="hide-mobile muted ellip">{{ row.it.description }}</td>

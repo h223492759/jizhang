@@ -1,13 +1,20 @@
 import dayjs from "dayjs";
+import { getSetting } from "../db.js";
 
-// 读取 AI 配置：兼容任何 OpenAI 风格接口（OpenAI / DeepSeek / 通义 / 本地 Ollama、LocalAI 等）
+// 读取 AI 配置：优先用「设置页」里保存的（DB settings），其次环境变量。
+// 兼容任何 OpenAI 风格接口（OpenAI / 智谱 / DeepSeek / 通义 / 本地 Ollama、LocalAI 等）
 export function aiConfig() {
-  return {
-    baseUrl: (process.env.AI_BASE_URL || "").replace(/\/$/, ""),
-    apiKey: process.env.AI_API_KEY || "",
-    model: process.env.AI_MODEL || "gpt-4o-mini",
-    enabled: !!process.env.AI_BASE_URL, // 只要配了地址就算开启（Ollama 可无 key）
-  };
+  let dbCfg = {};
+  const raw = getSetting("ai_config", "");
+  if (raw) {
+    try { dbCfg = JSON.parse(raw); } catch { dbCfg = {}; }
+  }
+  const baseUrl = (dbCfg.baseUrl || process.env.AI_BASE_URL || "").replace(/\/$/, "");
+  const apiKey = dbCfg.apiKey || process.env.AI_API_KEY || "";
+  const model = dbCfg.model || process.env.AI_MODEL || "gpt-4o-mini";
+  const imageModel = dbCfg.imageModel || process.env.AI_IMAGE_MODEL || model;
+  const enabled = !!baseUrl; // 只要配了地址就算开启（部分本地服务可无 key）
+  return { baseUrl, apiKey, model, imageModel, enabled, provider: dbCfg.provider || "" };
 }
 
 async function chat(messages, { json = false } = {}) {
@@ -29,6 +36,53 @@ async function chat(messages, { json = false } = {}) {
   if (!resp.ok) throw new Error(`AI接口错误 ${resp.status}: ${await resp.text()}`);
   const data = await resp.json();
   return data.choices?.[0]?.message?.content || "";
+}
+
+// 视觉（图片）对话：用于小票/账单截图识别，使用「图片/视觉模型」
+async function chatVision(contentParts, { json = false } = {}) {
+  const cfg = aiConfig();
+  if (!cfg.enabled) throw new Error("NO_AI");
+  const resp = await fetch(`${cfg.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(cfg.apiKey ? { Authorization: `Bearer ${cfg.apiKey}` } : {}),
+    },
+    body: JSON.stringify({
+      model: cfg.imageModel || cfg.model,
+      messages: [{ role: "user", content: contentParts }],
+      temperature: 0.2,
+      ...(json ? { response_format: { type: "json_object" } } : {}),
+    }),
+  });
+  if (!resp.ok) throw new Error(`AI接口错误 ${resp.status}: ${await resp.text()}`);
+  const data = await resp.json();
+  return data.choices?.[0]?.message?.content || "";
+}
+
+// ---------------- 图片记账（小票/账单截图识别） ----------------
+// 用视觉模型把图片 + 可选文字说明识别成一笔记账
+export async function parseFlowImage(imageB64, text, categories) {
+  const names = categories.map((c) => c.name);
+  const note = text && text.trim() ? `用户补充说明：${text.trim()}。` : "";
+  const sys = `你是记账助手。根据用户上传的账单/小票图片${note}识别成一笔记账JSON：{"type":"expense或income","amount":数字,"category":"分类","description":"简述","payment_method":"支付方式或空"}。
+分类只能从这些里选最接近的一个：${names.join("、")}。
+默认为支出(expense)，收到/工资/红包/报销等为收入(income)。只输出JSON，不要任何解释。`;
+  const url = imageB64.startsWith("data:") ? imageB64 : `data:image/jpeg;base64,${imageB64}`;
+  try {
+    const content = await chatVision(
+      [
+        { type: "text", text: sys },
+        { type: "image_url", image_url: { url } },
+      ],
+      { json: true }
+    );
+    const obj = JSON.parse(content);
+    return normalize(obj, names, "ai");
+  } catch (e) {
+    if (e.message !== "NO_AI") console.warn("[ai] 图片解析失败:", e.message);
+    throw e;
+  }
 }
 
 // ---------------- 一句话记账 ----------------

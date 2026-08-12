@@ -144,6 +144,9 @@ r.post(
       return res.status(400).json({ error: "金额必须大于0" });
     const flow_time = stampSaveTime(b.flow_time);
     const attr = resolveAttribution(req.bookId, req.user, b);
+    const category = (b.category || "其他").trim();
+    // 没写名称时，自动用分类名（如「餐饮」），方便检索与统计
+    const description = (b.description || "").toString().trim() || category;
     const info = db
       .prepare(
         `INSERT INTO flows (book_id, user_id, attribution, attribution_uid, type, amount, category, payment_method, description, flow_time)
@@ -156,9 +159,9 @@ r.post(
         attribution_uid: attr.uid,
         type,
         amount,
-        category: (b.category || "其他").trim(),
+        category,
         payment_method: (b.payment_method || "").trim(),
-        description: (b.description || "").trim(),
+        description,
         flow_time,
       });
     res.json({ id: info.lastInsertRowid });
@@ -262,14 +265,21 @@ r.put(
       attrUid = attr.uid;
     }
 
+    const effectiveCat = (b.category || cur.category).trim();
+    // 编辑时若清空名称，自动回退为分类名；没传名称字段则保持原值
+    const description =
+      b.description !== undefined
+        ? ((b.description || "").toString().trim() || effectiveCat)
+        : cur.description;
+
     db.prepare(
       `UPDATE flows SET type=?, amount=?, category=?, payment_method=?, description=?, flow_time=?, attribution=?, attribution_uid=? WHERE id=?`
     ).run(
       b.type === "income" ? "income" : "expense",
       Number(b.amount) || cur.amount,
-      (b.category || cur.category).trim(),
+      effectiveCat,
       (b.payment_method ?? cur.payment_method).trim(),
-      (b.description ?? cur.description).trim(),
+      description,
       stampSaveTime(b.flow_time, cur.flow_time),
       attrText,
       attrUid,

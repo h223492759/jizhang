@@ -251,10 +251,10 @@ function pct(f) {
         <div class="modal-body">
           <div v-if="detail.loading" class="muted" style="padding:24px;text-align:center">加载中…</div>
           <table v-else-if="sortedRows.length" class="tbl">
-            <thead><tr><th>时间</th><th>分类</th><th class="hide-mobile">名称</th><th style="text-align:right">金额</th><th style="text-align:right">占比</th></tr></thead>
+            <thead><tr><th>日期</th><th>分类</th><th class="hide-mobile">名称</th><th style="text-align:right">金额</th><th style="text-align:right">占比</th></tr></thead>
             <tbody>
               <tr v-for="f in sortedRows" :key="f.id">
-                <td class="muted">{{ dayjs(f.flow_time).format("MM-DD HH:mm") }}</td>
+                <td class="muted">{{ dayjs(f.flow_time).format("MM-DD") }}</td>
                 <td>{{ f.category }}</td>
                 <td class="hide-mobile muted ellip">{{ f.description }}</td>
                 <td style="text-align:right" :class="f.type"><b>{{ Number(f.amount).toFixed(2) }}</b></td>
