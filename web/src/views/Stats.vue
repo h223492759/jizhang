@@ -12,7 +12,6 @@ const facets = ref({ years: [], months: [] });
 
 const overview = ref({ income: 0, expense: 0, balance: 0, count: 0 });
 const category = ref([]);
-const payment = ref([]);
 const attribution = ref([]);
 const daily = ref([]);
 const monthly = ref([]);
@@ -38,16 +37,14 @@ const period = computed(() => {
 
 async function load() {
   const params = period.value;
-  const [ov, cat, pay, attr, day] = await Promise.all([
+  const [ov, cat, attr, day] = await Promise.all([
     api.get("/stats/overview", { params }),
     api.get("/stats/category", { params: { ...params, type: "expense" } }),
-    api.get("/stats/payment", { params }),
     api.get("/stats/attribution", { params: { ...params, type: "expense" } }),
     api.get("/stats/daily", { params }),
   ]);
   overview.value = ov.data;
   category.value = cat.data;
-  payment.value = pay.data;
   attribution.value = attr.data;
   daily.value = day.data;
   const { data: mon } = await api.get("/stats/monthly", { params: { year: year.value } });
@@ -68,17 +65,18 @@ init();
 const PALETTE = ["#6366f1","#ef4444","#f59e0b","#10b981","#3b82f6","#ec4899","#8b5cf6","#14b8a6","#f97316","#64748b"];
 
 // 饼图标题 → 维度（点击时据此查询明细）
-const PIE_DIM = { "支出分类": "category", "支付方式": "payment", "消费归属": "attribution" };
+const PIE_DIM = { "支出分类": "category", "消费归属": "attribution" };
 const DIM_LABEL = { category: "分类", payment: "支付方式", attribution: "归属人" };
 
 function pie(title, data) {
   return {
     title: { text: title, left: "center", textStyle: { fontSize: 14 } },
     tooltip: { trigger: "item", formatter: "{b}: ¥{c} ({d}%)" },
-    legend: { bottom: 0, type: "scroll" },
+    // 注释完整显示，不折叠为滚动
+    legend: { bottom: 2, type: "plain", width: "92%", itemWidth: 10, itemHeight: 10, textStyle: { fontSize: 11 } },
     color: PALETTE,
     series: [{
-      type: "pie", radius: ["42%", "68%"], center: ["50%", "46%"],
+      type: "pie", radius: ["36%", "62%"], center: ["50%", "42%"],
       cursor: "pointer",
       avoidLabelOverlap: true,
       itemStyle: { borderRadius: 6, borderColor: "transparent", borderWidth: 2 },
@@ -89,7 +87,30 @@ function pie(title, data) {
 }
 
 const dailyOpt = computed(() => ({
-  tooltip: { trigger: "axis" },
+  tooltip: {
+    trigger: "axis",
+    formatter(params) {
+      const label = params[0]?.axisValue; // "MM-DD"
+      const day = daily.value.find((d) => d.date.slice(5) === label);
+      if (!day) return "";
+      const lines = [];
+      lines.push(`<b>${day.date}</b>`);
+      lines.push(`支出合计：¥${Number(day.expense).toFixed(2)}`);
+      lines.push(`收入合计：¥${Number(day.income).toFixed(2)}`);
+      const exp = day.top?.expense || [];
+      const inc = day.top?.income || [];
+      if (exp.length) {
+        lines.push(`<br/>支出 Top${exp.length}：`);
+        exp.forEach((t) => lines.push(`　${t.category || "未分类"}${t.description ? "·" + t.description : ""} ¥${Number(t.amount).toFixed(2)}`));
+      }
+      if (inc.length) {
+        lines.push(`<br/>收入 Top${inc.length}：`);
+        inc.forEach((t) => lines.push(`　${t.category || "未分类"}${t.description ? "·" + t.description : ""} ¥${Number(t.amount).toFixed(2)}`));
+      }
+      if (!exp.length && !inc.length) lines.push(`<br/>当日无明细`);
+      return lines.join("<br/>");
+    },
+  },
   legend: { data: ["支出", "收入"], top: 0 },
   grid: { left: 45, right: 15, top: 35, bottom: 30 },
   xAxis: { type: "category", data: daily.value.map((d) => d.date.slice(5)) },
@@ -119,7 +140,7 @@ const detail = ref({ open: false, title: "", rows: [], total: 0, loading: false 
 const sortField = ref("amount"); // amount | time
 const sortOrder = ref("desc");   // desc | asc
 
-// 饼图：按维度（分类/支付方式/归属人）查看明细
+// 饼图：按维度（分类/归属人）查看明细
 async function onPieClick(params) {
   const dim = PIE_DIM[params.seriesName];
   if (!dim || !params.name) return;
@@ -202,10 +223,9 @@ function pct(f) {
 
     <div class="grid charts">
       <div class="card clickable-hint"><EChart :option="pie('支出分类', category)" v-if="category.length" @click="onPieClick" /><div v-else class="empty muted">暂无支出数据</div></div>
-      <div class="card clickable-hint"><EChart :option="pie('支付方式', payment)" v-if="payment.length" @click="onPieClick" /><div v-else class="empty muted">暂无数据</div></div>
       <div class="card clickable-hint"><EChart :option="pie('消费归属', attribution)" v-if="attribution.length" @click="onPieClick" /><div v-else class="empty muted">暂无数据</div></div>
-      <div class="card">
-        <div class="section-title">每日流水趋势</div>
+      <div class="card daily-card">
+        <div class="section-title">每日流水趋势（悬浮查看当日明细）</div>
         <EChart :option="dailyOpt" v-if="daily.length" :height="'260px'" /><div v-else class="empty muted">暂无数据</div>
       </div>
     </div>
@@ -262,10 +282,11 @@ export default { components: { EChart } };
 .cards { grid-template-columns: repeat(4,1fr); margin-bottom: 16px; }
 .stat .big { font-size: 20px; font-weight: 800; margin-top: 6px; }
 .charts { grid-template-columns: repeat(2, 1fr); }
+.daily-card { grid-column: span 2; }
 .clickable-hint { position: relative; }
 .clickable-hint::after { content: "点击查看明细"; position: absolute; top: 8px; right: 12px; font-size: 11px; color: var(--text-2); opacity: .7; pointer-events: none; }
 .empty { display: flex; align-items: center; justify-content: center; height: 300px; }
-@media (max-width: 720px) { .cards { grid-template-columns: repeat(2,1fr); } .charts { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .cards { grid-template-columns: repeat(2,1fr); } .charts { grid-template-columns: 1fr; } .daily-card { grid-column: span 1; } }
 
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
 .modal { background: var(--surface); color: var(--text); width: min(640px, 100%); max-height: 80vh; border-radius: 14px; display: flex; flex-direction: column; box-shadow: var(--shadow); overflow: hidden; }

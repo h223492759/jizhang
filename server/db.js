@@ -119,6 +119,7 @@ db.exec(
 
 // ---------------- 默认分类 ----------------
 export const DEFAULT_CATEGORIES = [
+  // ---------- 支出 ----------
   { name: "餐饮", type: "expense", icon: "🍜", color: "#ff6b6b" },
   { name: "购物", type: "expense", icon: "🛍️", color: "#ff922b" },
   { name: "交通", type: "expense", icon: "🚌", color: "#4dabf7" },
@@ -129,20 +130,65 @@ export const DEFAULT_CATEGORIES = [
   { name: "通讯", type: "expense", icon: "📱", color: "#22b8cf" },
   { name: "人情", type: "expense", icon: "🎁", color: "#fa5252" },
   { name: "其他", type: "expense", icon: "💸", color: "#868e96" },
+  // 以下为截图中的分类（新增）
+  { name: "水果", type: "expense", icon: "🍎", color: "#ff6b6b" },
+  { name: "孩子", type: "expense", icon: "👶", color: "#f06595" },
+  { name: "零食", type: "expense", icon: "🍪", color: "#ff922b" },
+  { name: "运动", type: "expense", icon: "🏀", color: "#4dabf7" },
+  { name: "服饰", type: "expense", icon: "👕", color: "#e64980" },
+  { name: "美容", type: "expense", icon: "💄", color: "#f783ac" },
+  { name: "长辈", type: "expense", icon: "👴", color: "#868e96" },
+  { name: "社交", type: "expense", icon: "🤝", color: "#20c997" },
+  { name: "旅行", type: "expense", icon: "✈️", color: "#15aabf" },
+  { name: "烟酒", type: "expense", icon: "🍺", color: "#fab005" },
+  { name: "数码", type: "expense", icon: "💻", color: "#1c7ed6" },
+  { name: "居家", type: "expense", icon: "🛋️", color: "#845ef7" },
+  { name: "宠物", type: "expense", icon: "🐱", color: "#f783ac" },
+  { name: "礼金", type: "expense", icon: "🧧", color: "#e03131" },
+  { name: "备婚", type: "expense", icon: "💒", color: "#f06595" },
+  { name: "礼物", type: "expense", icon: "💝", color: "#fa5252" },
+  { name: "办公", type: "expense", icon: "📎", color: "#495057" },
+  { name: "亲友", type: "expense", icon: "👫", color: "#12b886" },
+  { name: "彩票", type: "expense", icon: "🎰", color: "#ae3ec9" },
+  { name: "保险", type: "expense", icon: "🛡️", color: "#4263eb" },
+  { name: "汽车", type: "expense", icon: "🚗", color: "#339af0" },
+  { name: "快递", type: "expense", icon: "📦", color: "#f59f00" },
+  { name: "捐赠", type: "expense", icon: "🪙", color: "#0ca678" },
+  // ---------- 收入 ----------
   { name: "工资", type: "income", icon: "💼", color: "#37b24d" },
   { name: "奖金", type: "income", icon: "🏆", color: "#f59f00" },
   { name: "理财", type: "income", icon: "📈", color: "#1c7ed6" },
   { name: "红包", type: "income", icon: "🧧", color: "#e03131" },
-  { name: "其他收入", type: "income", icon: "🪙", color: "#0ca678" },
+  { name: "其他收入", type: "income", icon: "💰", color: "#0ca678" },
+  { name: "兼职", type: "income", icon: "💼", color: "#2f9e44" },
 ];
 
+// 幂等写入：已存在的（同名同类型）跳过，可安全重复调用，
+// 既能给新账本播种，也能给老账本补充缺失的默认分类
 export function seedCategories(bookId) {
+  const exists = db.prepare(
+    "SELECT 1 FROM categories WHERE book_id=? AND name=? AND type=?"
+  );
+  const getMax = db.prepare(
+    "SELECT COALESCE(MAX(sort),0) AS m FROM categories WHERE book_id=? AND type=?"
+  );
   const stmt = db.prepare(
     "INSERT INTO categories (book_id, name, type, icon, color, sort) VALUES (?,?,?,?,?,?)"
   );
-  DEFAULT_CATEGORIES.forEach((c, i) =>
-    stmt.run(bookId, c.name, c.type, c.icon, c.color, i)
-  );
+  const tx = db.transaction((bid) => {
+    for (const c of DEFAULT_CATEGORIES) {
+      if (exists.get(bid, c.name, c.type)) continue;
+      const max = getMax.get(bid, c.type).m;
+      stmt.run(bid, c.name, c.type, c.icon, c.color, max + 1);
+    }
+  });
+  tx(bookId);
+}
+
+// 启动时为所有已存在的账本补充缺失的默认分类（幂等）
+export function ensureDefaultCategoriesForAllBooks() {
+  const books = db.prepare("SELECT id FROM books").all();
+  for (const b of books) seedCategories(b.id);
 }
 
 // ---------------- 创建用户（含默认账本与分类） ----------------

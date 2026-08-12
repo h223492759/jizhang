@@ -93,7 +93,7 @@ r.get(
   })
 );
 
-// 每日流水曲线
+// 每日流水曲线（含当日 Top3 收/支，供悬浮提示用）
 r.get(
   "/daily",
   requireBook,
@@ -108,7 +108,28 @@ r.get(
          GROUP BY date ORDER BY date`
       )
       .all(p);
-    res.json(rows);
+    // 当日 Top3 收入 / 支出（最多各 3 笔，合计最多 6 笔）
+    const top = db
+      .prepare(
+        `SELECT * FROM (
+           SELECT substr(flow_time,1,10) AS date, type, amount, category, description,
+                  ROW_NUMBER() OVER (PARTITION BY substr(flow_time,1,10), type ORDER BY amount DESC) AS rn
+           FROM flows ${where}
+         ) WHERE rn <= 3`
+      )
+      .all(p);
+    const byDate = {};
+    for (const t of top) {
+      (byDate[t.date] ||= {})[t.type] ||= [];
+      byDate[t.date][t.type].push({
+        amount: Number(t.amount),
+        category: t.category,
+        description: t.description,
+      });
+    }
+    res.json(
+      rows.map((r) => ({ ...r, top: byDate[r.date] || {} }))
+    );
   })
 );
 
