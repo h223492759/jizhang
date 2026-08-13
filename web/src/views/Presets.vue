@@ -119,10 +119,15 @@ const grouped = computed(() => {
       weight: g.items.reduce((s, it) => s + (it.count || 1), 0),
       items: g.items,
     }));
+    // 按「分类规范顺序」排列（支出在前、收入在后，遵循分类管理里的顺序），未分类置底
+    const orderMap = {};
+    store.categories.forEach((c, i) => { orderMap[c.name] = i; });
     arr.sort((a, b) => {
       if (a.category === "未分类") return 1;
       if (b.category === "未分类") return -1;
-      return b.weight - a.weight;
+      const ia = orderMap[a.category] ?? 1e9;
+      const ib = orderMap[b.category] ?? 1e9;
+      return ia - ib;
     });
     res[t] = arr;
   }

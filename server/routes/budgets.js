@@ -82,15 +82,19 @@ r.post(
       ? req.body.categories.map((c) => (c || "").trim()).filter(Boolean)
       : [(req.body?.category || "").trim()];
 
+    // 多个分类时，传入的 amount 视为「这些分类的总预算」，按分类数平分后逐条写入，
+    // 这样每个分类卡片显示的剩余 = 平分值 - 已花费，合计即输入的总预算。
+    const per = cats.length > 1 ? amount / cats.length : amount;
+
     const stmt = db.prepare(
       `INSERT INTO budgets (book_id, year, category, amount, expression) VALUES (?,?,?,?,?)
        ON CONFLICT(book_id, year, category) DO UPDATE SET amount=excluded.amount, expression=excluded.expression`
     );
     const tx = db.transaction(() => {
-      for (const category of cats) stmt.run(req.bookId, year, category, amount, expression);
+      for (const category of cats) stmt.run(req.bookId, year, category, per, expression);
     });
     tx();
-    res.json({ ok: true, count: cats.length });
+    res.json({ ok: true, count: cats.length, per, total: amount });
   })
 );
 

@@ -41,7 +41,11 @@ r.get(
          FROM flows ${where} GROUP BY name ORDER BY count DESC`
       )
       .all(p);
-    res.json({ ...s, balance: s.income - s.expense, byUser });
+    // 记账总数（全账本、不限时间），供首页展示「总数」
+    const totalCount = db
+      .prepare("SELECT COUNT(*) AS n FROM flows WHERE book_id=?")
+      .get(req.bookId).n;
+    res.json({ ...s, balance: s.income - s.expense, byUser, totalCount });
   })
 );
 
@@ -150,15 +154,17 @@ r.get(
   requireBook,
   wrap((req, res) => {
     const year = Number(req.query.year) || new Date().getFullYear();
+    const category = (req.query.category || "").trim();
     const rows = db
       .prepare(
         `SELECT substr(flow_time,1,7) AS month,
                 COALESCE(SUM(CASE WHEN type='expense' THEN amount END),0) AS expense,
                 COALESCE(SUM(CASE WHEN type='income'  THEN amount END),0) AS income
          FROM flows WHERE book_id=? AND substr(flow_time,1,4)=?
+         ${category ? "AND category=?" : ""}
          GROUP BY month ORDER BY month`
       )
-      .all(req.bookId, String(year));
+      .all(req.bookId, String(year), ...(category ? [category] : []));
     // 补齐 12 个月
     const map = Object.fromEntries(rows.map((x) => [x.month, x]));
     const out = [];

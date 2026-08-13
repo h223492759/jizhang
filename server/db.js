@@ -98,6 +98,95 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- 定期记账模板：每月/每年固定的收支，到期自动生成真实流水
+CREATE TABLE IF NOT EXISTS recurring (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  book_id        INTEGER NOT NULL,
+  type           TEXT NOT NULL DEFAULT 'expense',  -- expense | income
+  category       TEXT NOT NULL DEFAULT '其他',
+  description    TEXT NOT NULL DEFAULT '',
+  amount         REAL NOT NULL DEFAULT 0,
+  payment_method TEXT NOT NULL DEFAULT '',
+  freq           TEXT NOT NULL DEFAULT 'monthly',  -- monthly | yearly
+  day_of_month   INTEGER NOT NULL DEFAULT 1,       -- 每月几号 / 每年的日期（号）
+  month_of_year  INTEGER NOT NULL DEFAULT 1,       -- 仅 yearly 用：第几月
+  note           TEXT NOT NULL DEFAULT '',
+  next_run       TEXT NOT NULL,                    -- 下一次应记账日期 YYYY-MM-DD
+  last_period    TEXT NOT NULL DEFAULT '',         -- 最近一次生成的周期（去重用）
+  created_at     TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_recurring_book ON recurring(book_id);
+
+-- ============ 存款目标 ============
+-- 每个账本一个存款目标（如 100 万）
+CREATE TABLE IF NOT EXISTS savings_goal (
+  book_id    INTEGER PRIMARY KEY,
+  target     REAL NOT NULL DEFAULT 0,
+  note       TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+-- 资金细则：现金 / 微信余额 / 信用卡账单 …
+-- sign = 1 计为资产（正），-1 计为负债（负），默认正
+CREATE TABLE IF NOT EXISTS savings_items (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  book_id    INTEGER NOT NULL,
+  name       TEXT NOT NULL,
+  sign       INTEGER NOT NULL DEFAULT 1,
+  amount     REAL NOT NULL DEFAULT 0,
+  note       TEXT NOT NULL DEFAULT '',
+  sort       INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  UNIQUE (book_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_sav_items_book ON savings_items(book_id, sort);
+
+-- 资产历史：每次更新资产/负债都会 upsert 当天一条，
+-- 历史月表/柱状图按月取「该月最后更新日期」那条（每月只显示一次数据）
+CREATE TABLE IF NOT EXISTS savings_history (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  book_id    INTEGER NOT NULL,
+  ymd        TEXT NOT NULL,                    -- YYYY-MM-DD
+  asset      REAL NOT NULL DEFAULT 0,          -- 正向合计（资产）
+  liability  REAL NOT NULL DEFAULT 0,          -- 负向合计（负债，存正数）
+  net        REAL NOT NULL DEFAULT 0,          -- 净资产 = asset - liability
+  user_id    INTEGER NOT NULL DEFAULT 0,
+  op_user    TEXT NOT NULL DEFAULT '',         -- 操作人昵称（冗余，优先按 user_id 解析当前昵称）
+  updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  UNIQUE (book_id, ymd)
+);
+CREATE INDEX IF NOT EXISTS idx_sav_hist_book ON savings_history(book_id, ymd);
+
+-- ============ 分类钱包（专项资金池） ============
+-- 如「养娃 / 买房 / 买车」，每月发工资后固定存入
+CREATE TABLE IF NOT EXISTS wallets (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  book_id    INTEGER NOT NULL,
+  name       TEXT NOT NULL,
+  icon       TEXT NOT NULL DEFAULT '👛',
+  target     REAL NOT NULL DEFAULT 0,          -- 可选目标金额，0 = 不设目标
+  note       TEXT NOT NULL DEFAULT '',
+  sort       INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  UNIQUE (book_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_wallets_book ON wallets(book_id, sort);
+
+-- 钱包资金记录：每笔都带日期、金额、操作人。amount 为正=存入，负=支出
+CREATE TABLE IF NOT EXISTS wallet_txns (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  book_id    INTEGER NOT NULL,
+  wallet_id  INTEGER NOT NULL,
+  amount     REAL NOT NULL DEFAULT 0,
+  ymd        TEXT NOT NULL,                    -- YYYY-MM-DD
+  note       TEXT NOT NULL DEFAULT '',
+  user_id    INTEGER NOT NULL DEFAULT 0,
+  op_user    TEXT NOT NULL DEFAULT '',         -- 操作人昵称（冗余）
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_wallet_txns ON wallet_txns(book_id, wallet_id, ymd);
 `);
 
 // ---------------- 轻量迁移 ----------------
@@ -136,6 +225,10 @@ addColumnIfMissing("users", "color", "color TEXT NOT NULL DEFAULT '#7c8cff'");
 
 // 预算金额支持算式（如 "1000+200"），保存时存计算结果，原始算式留作备注
 addColumnIfMissing("budgets", "expression", "expression TEXT NOT NULL DEFAULT ''");
+
+// 分类钱包可关联某一流水分类（自某日期起），该分类的支出自动加减到钱包余额
+addColumnIfMissing("wallets", "link_from", "link_from TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing("wallets", "link_category", "link_category TEXT NOT NULL DEFAULT ''");
 
 // 给用户分配一个稳定的颜色（按用户名哈希，避免每次刷新都变）
 const USER_PALETTE = ["#6366f1","#ef4444","#f59e0b","#10b981","#3b82f6","#ec4899","#8b5cf6","#14b8a6","#f97316","#0ea5e9","#a855f7","#22c55e"];

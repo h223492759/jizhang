@@ -12,6 +12,9 @@ const parsing = ref(false);
 const result = ref(null);
 const showDialog = ref(false);
 const preset = ref(null);
+// 已记账结果：确认后直接落库，展示「删除记账 / 修改记账」
+const created = ref(null);
+const editOpen = ref(false);
 
 // 月度分析
 const month = ref(dayjs().format("YYYY-MM"));
@@ -33,15 +36,44 @@ async function parse() {
 }
 
 function confirmResult() {
-  preset.value = {
+  if (!result.value) return;
+  if (!result.value.amount || Number(result.value.amount) <= 0)
+    return toast("金额无效，无法记账");
+  const payload = {
     type: result.value.type,
-    amount: result.value.amount,
+    amount: Number(result.value.amount),
     category: result.value.category,
-    payment_method: result.value.payment_method,
-    description: result.value.description,
+    payment_method: result.value.payment_method || "",
+    description: result.value.description || result.value.category || "",
     flow_time: dayjs().format("YYYY-MM-DD"),
   };
-  showDialog.value = true;
+  api
+    .post("/flows", payload)
+    .then(({ data }) => {
+      created.value = { id: data.id, ...payload };
+      result.value = null;
+      text.value = "";
+      toast("记账成功");
+    })
+    .catch((e) => toast(e.message));
+}
+function deleteCreated() {
+  if (!created.value) return;
+  api
+    .delete(`/flows/${created.value.id}`)
+    .then(() => {
+      toast("已删除");
+      created.value = null;
+    })
+    .catch((e) => toast(e.message));
+}
+function editCreated() {
+  editOpen.value = true;
+}
+function onEditSaved() {
+  editOpen.value = false;
+  created.value = null;
+  toast("已修改");
 }
 function onSaved() {
   result.value = null;
@@ -126,6 +158,22 @@ async function analyze() {
           <button class="btn btn-primary" @click="confirmResult">确认并记账</button>
         </div>
       </div>
+
+      <!-- 已记账结果：可直接删除 / 修改 -->
+      <div v-if="created" class="result done">
+        <div class="rline">
+          <span class="tag" :class="created.type">{{ created.type === "expense" ? "支出" : "收入" }}</span>
+          <b class="ramt" :class="created.type">¥{{ Number(created.amount).toFixed(2) }}</b>
+          <span class="tag">{{ store.categories.find(c => c.name === created.category)?.icon || "💰" }} {{ created.category }}</span>
+          <span v-if="created.payment_method" class="tag">{{ created.payment_method }}</span>
+          <span class="muted small">已记账 ✓</span>
+        </div>
+        <div v-if="created.description" class="muted">名称：{{ created.description }}</div>
+        <div class="row" style="justify-content:flex-end;margin-top:10px">
+          <button class="btn" @click="deleteCreated">删除记账</button>
+          <button class="btn btn-primary" @click="editCreated">修改记账</button>
+        </div>
+      </div>
     </div>
 
     <!-- 月度分析 -->
@@ -169,6 +217,7 @@ async function analyze() {
     </div>
 
     <FlowDialog v-model="showDialog" :preset="preset" @saved="onSaved" />
+    <FlowDialog v-model="editOpen" :flow="created" @saved="onEditSaved" />
   </div>
 </template>
 
@@ -178,6 +227,7 @@ async function analyze() {
 .chip { background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px; font-size: 13px; cursor: pointer; color: var(--text-2); }
 .chip:hover { border-color: var(--primary); color: var(--primary); }
 .result { margin-top: 16px; padding: 14px; border-radius: 12px; background: var(--surface-2); }
+.result.done { border: 1px solid color-mix(in srgb, var(--income) 45%, transparent); background: color-mix(in srgb, var(--income) 8%, var(--surface-2)); }
 .rline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ramt { font-size: 20px; }
 .tag.expense { color: var(--expense); }

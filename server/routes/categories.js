@@ -23,6 +23,12 @@ r.post(
     const { name, type, icon, color } = req.body || {};
     if (!name || !["expense", "income"].includes(type))
       return res.status(400).json({ error: "参数错误" });
+    const n = name.trim();
+    // 同类型下不允许重名（不区分大小写）
+    const dup = db
+      .prepare("SELECT id FROM categories WHERE book_id=? AND type=? AND lower(name)=lower(?)")
+      .get(req.bookId, type, n);
+    if (dup) return res.status(400).json({ error: `分类「${n}」已存在` });
     const maxSort =
       db
         .prepare("SELECT MAX(sort) AS m FROM categories WHERE book_id=? AND type=?")
@@ -45,6 +51,14 @@ r.put(
       .prepare("SELECT * FROM categories WHERE id=? AND book_id=?")
       .get(req.params.id, req.bookId);
     if (!cat) return res.status(404).json({ error: "分类不存在" });
+    const n = (name || "").trim();
+    // 改名时若与同类型其他分类重名则拒绝
+    if (n && n !== cat.name) {
+      const dup = db
+        .prepare("SELECT id FROM categories WHERE book_id=? AND type=? AND lower(name)=lower(?) AND id<>?")
+        .get(req.bookId, cat.type, n, cat.id);
+      if (dup) return res.status(400).json({ error: `分类「${n}」已存在` });
+    }
     db.prepare("UPDATE categories SET name=?, icon=?, color=? WHERE id=?").run(
       name?.trim() || cat.name,
       icon || cat.icon,

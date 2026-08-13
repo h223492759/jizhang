@@ -59,11 +59,34 @@ function applyProvider(m) {
     m.imageModel = p.imageModel;
   }
 }
+// 「添加模型」改为弹出独立弹窗填写，避免页面内联展开过长
+const showAddModel = ref(false);
+function blankModel() {
+  return { name: "", provider: "", baseUrl: "", apiKey: "", model: "", imageModel: "", isDefault: false };
+}
+const newModel = ref(blankModel());
 function addModel() {
+  newModel.value = blankModel();
+  newModel.value.isDefault = aiModels.value.length === 0;
+  showAddModel.value = true;
+}
+function confirmAddModel() {
+  const m = newModel.value;
+  if (!m.name.trim()) return toast("请填写模型名称");
+  if (!m.baseUrl.trim()) return toast("请填写 API 地址");
+  if (m.isDefault) aiModels.value.forEach((x) => (x.isDefault = false));
   aiModels.value.push({
-    id: "", name: "", provider: "", baseUrl: "", apiKey: "", model: "", imageModel: "",
-    isDefault: aiModels.value.length === 0,
+    id: "",
+    name: m.name.trim(),
+    provider: m.provider,
+    baseUrl: m.baseUrl.trim(),
+    apiKey: m.apiKey.trim(),
+    model: m.model.trim(),
+    imageModel: m.imageModel.trim(),
+    isDefault: m.isDefault,
   });
+  showAddModel.value = false;
+  saveAi();
 }
 function removeModel(i) {
   aiModels.value.splice(i, 1);
@@ -179,6 +202,44 @@ async function savePwd() {
           {{ aiStatus.enabled ? "● 已启用" : "○ 未启用" }}
         </span>
         <button class="btn btn-primary" :disabled="aiSaving" @click="saveAi">{{ aiSaving ? "保存中…" : "保存 AI 设置" }}</button>
+      </div>
+    </div>
+
+    <!-- 新增 AI 模型弹窗 -->
+    <div v-if="showAddModel" class="modal-mask" @click.self="showAddModel = false">
+      <div class="modal" style="max-width:640px">
+        <h3 class="modal-title">新增 AI 模型</h3>
+        <label class="field" style="max-width:none"><span>模型名称</span>
+          <input class="input" v-model.trim="newModel.name" placeholder="如 智谱 / 我自己的 Key" />
+        </label>
+        <label class="field" style="max-width:none">
+          <span>服务商预设（选一个自动填好地址与模型）</span>
+          <select class="select" v-model="newModel.provider" @change="applyProvider(newModel)">
+            <option value="">自定义 / 其他</option>
+            <optgroup v-for="g in PROVIDER_GROUPS" :key="g.group" :label="g.group">
+              <option v-for="p in g.items" :key="p.key" :value="p.key">{{ p.label }}</option>
+            </optgroup>
+          </select>
+        </label>
+        <label class="field" style="max-width:none"><span>API 地址（Base URL）</span>
+          <input class="input" v-model.trim="newModel.baseUrl" placeholder="https://open.bigmodel.cn/api/paas/v4" />
+        </label>
+        <label class="field" style="max-width:none"><span>API Key</span>
+          <input class="input" type="password" v-model="newModel.apiKey" placeholder="API Key" />
+        </label>
+        <div class="row form-row">
+          <label class="field" style="flex:1;min-width:200px"><span>文本模型</span>
+            <input class="input" v-model.trim="newModel.model" placeholder="glm-4-flash" />
+          </label>
+          <label class="field" style="flex:1;min-width:200px"><span>图片 / 视觉模型</span>
+            <input class="input" v-model.trim="newModel.imageModel" placeholder="glm-4v-flash" />
+          </label>
+        </div>
+        <label class="radio" style="margin:2px 0 12px"><input type="checkbox" v-model="newModel.isDefault" /> 设为默认模型（用于记账）</label>
+        <div class="row" style="align-items:center;justify-content:flex-end;gap:8px">
+          <button class="btn" @click="showAddModel = false">取消</button>
+          <button class="btn btn-primary" @click="confirmAddModel">添加</button>
+        </div>
       </div>
     </div>
 

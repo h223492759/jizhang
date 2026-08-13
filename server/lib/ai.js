@@ -114,7 +114,8 @@ ${DISAMBIGUATION}
       { json: true }
     );
     const obj = JSON.parse(content);
-    return normalize(obj, names, "ai", text || "");
+    const explicit = explicitCategory(text || "", names);
+    return normalize(obj, names, "ai", text || "", explicit);
   } catch (e) {
     if (e.message !== "NO_AI") console.warn("[ai] 图片解析失败:", e.message);
     throw e;
@@ -193,6 +194,30 @@ function ruleClassify(text, names) {
   return null;
 }
 
+// 显式指定分类：用户明确说了「到数码 / 记到餐饮 / 分到办公 / 归到数码」等，
+// 应优先采用，不被关键词或大模型推断覆盖（如「买打印机到数码」应归数码而非办公）。
+// 兜底分类「其他 / 其它」不参与显式识别，避免误命中（如「到其他人」）。
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function explicitCategory(text, names) {
+  const t = String(text);
+  const markers = [
+    "记到", "分到", "归到", "划到", "记在", "到", "属于", "归入", "归类为",
+    "类别为", "分类为", "类别是", "分类是", "类是", "分类", "类别", "归为",
+  ];
+  const sorted = [...markers].sort((a, b) => b.length - a.length);
+  for (const name of names) {
+    if (name === "其他" || name === "其它") continue;
+    for (const m of sorted) {
+      const re = new RegExp(escapeRe(m) + "\\s*了?\\s*" + escapeRe(name));
+      if (re.test(t)) return name;
+    }
+    if (new RegExp(escapeRe(name) + "类").test(t)) return name;
+  }
+  return null;
+}
+
 // 高置信纠正：即便大模型分错也强制归位（如「超市买菜」必须是餐饮）
 function forceCorrect(rawText, obj) {
   if (/(买菜|食材|生鲜|蔬|菜场|菜市场|做饭材料|下厨材料)/.test(rawText) && obj.type !== "income") {
@@ -215,10 +240,13 @@ function buildResult({ type, amount, category, description = "", payment_method 
 
 // 优先用本地规则命中（常见场景直接返回，不调模型，更快更准）；
 // 命中不到再交给大模型；模型失败再回退到规则兜底。
+// 若用户显式指定了分类（如「到数码」），无论上面哪条路径都强制采用该分类。
 export async function parseFlowText(text, categories) {
   const names = categories.map((c) => c.name);
+  const catType = (name) => categories.find((c) => c.name === name)?.type;
+  const explicit = explicitCategory(text, names);
   const rule = ruleClassify(text, names);
-  if (rule && rule.amount > 0) return buildResult(rule); // 高置信：不调模型，更快更准
+  if (rule && rule.amount > 0 && !explicit) return buildResult(rule); // 高置信且无显式指定：不调模型
   try {
     const sys = `你是记账助手。把用户的自然语言转成JSON：{"type":"expense或income","amount":数字,"category":"分类","description":"简述","payment_method":"支付方式或空"}。
 分类只能从这些里选最接近的一个：${names.join("、")}。
@@ -232,20 +260,30 @@ ${DISAMBIGUATION}
       { json: true }
     );
     const obj = JSON.parse(content);
-    return normalize(obj, names, "ai", text);
+    const result = normalize(obj, names, "ai", text, explicit);
+    // 显式指定分类时，类型也跟着该分类走（避免「数码」被当成支出/收入的错配）
+    if (explicit && catType(explicit)) result.type = catType(explicit);
+    return result;
   } catch (e) {
     if (e.message !== "NO_AI") console.warn("[ai] 解析回退规则:", e.message);
     const fb = ruleClassify(text, names) || ruleParse(text, names);
-    return buildResult(fb);
+    const result = buildResult({ ...fb, category: explicit || fb.category });
+    if (explicit && catType(explicit)) result.type = catType(explicit);
+    return result;
   }
 }
 
-function normalize(obj, names, source, rawText = "") {
+function normalize(obj, names, source, rawText = "", forceCategory = null) {
   const fixed = forceCorrect(rawText, obj);
-  const category =
-    names.find((n) => n === fixed.category) ||
-    names.find((n) => fixed.category && (n.includes(fixed.category) || String(fixed.category).includes(n))) ||
-    (fixed.type === "income" ? "其它" : "其他");
+  let category = fixed.category;
+  // 用户显式指定了分类时，强制采用（不被模型推断覆盖）
+  if (forceCategory && names.includes(forceCategory)) category = forceCategory;
+  else {
+    category =
+      names.find((n) => n === fixed.category) ||
+      names.find((n) => fixed.category && (n.includes(fixed.category) || String(fixed.category).includes(n))) ||
+      (fixed.type === "income" ? "其它" : "其他");
+  }
   return buildResult({
     type: fixed.type,
     amount: fixed.amount,

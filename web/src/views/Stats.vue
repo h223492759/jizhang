@@ -2,8 +2,11 @@
 import { ref, computed } from "vue";
 import dayjs from "dayjs";
 import api from "../api.js";
+import { useStore } from "../store.js";
 import { toast } from "../toast.js";
 import { resolvePieDetail, resolveBarDetail } from "../lib/statsDetail.js";
+
+const store = useStore();
 
 const range = ref("month"); // month | year | custom
 const custom = ref({ start: "", end: "" });
@@ -146,6 +149,19 @@ const monthlyOpt = computed(() => ({
 
 function fmt(n) { return "¥" + Number(n||0).toLocaleString("zh-CN",{minimumFractionDigits:2,maximumFractionDigits:2}); }
 
+// 日期支持「20260813」整串输入，自动补全为 YYYY-MM-DD（与其它日期框统一）
+function normDate(s) {
+  if (!s) return "";
+  s = String(s).trim();
+  const m = s.replace(/\D/g, "");
+  if (m.length === 8) return `${m.slice(0, 4)}-${m.slice(4, 6)}-${m.slice(6, 8)}`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  return "";
+}
+function catIcon(name) {
+  return store.categories.find((c) => c.name === name)?.icon || "💰";
+}
+
 // ---------------- 图表点击 → 查看明细 ----------------
 const detail = ref({ open: false, title: "", rows: [], total: 0, loading: false });
 const sortField = ref("amount"); // amount | time
@@ -214,9 +230,9 @@ function pct(f) {
         <option v-for="y in (facets.years.length?facets.years:[year])" :key="y" :value="y">{{ y }}年</option>
       </select>
       <template v-if="range==='custom'">
-        <input class="input" style="width:150px" type="date" v-model="custom.start" />
+        <input class="input" style="width:150px" type="text" :value="custom.start" @input="e => custom.start = normDate(e.target.value)" placeholder="20260813" />
         <span class="muted">至</span>
-        <input class="input" style="width:150px" type="date" v-model="custom.end" />
+        <input class="input" style="width:150px" type="text" :value="custom.end" @input="e => custom.end = normDate(e.target.value)" placeholder="20260813" />
         <button class="btn btn-sm btn-primary" @click="load">查询</button>
       </template>
     </div>
@@ -258,18 +274,25 @@ function pct(f) {
         </div>
         <div class="modal-body">
           <div v-if="detail.loading" class="muted" style="padding:24px;text-align:center">加载中…</div>
-          <table v-else-if="sortedRows.length" class="tbl">
-            <thead><tr><th class="c-date">日期</th><th class="c-cat">分类</th><th class="hide-mobile">名称</th><th class="c-amt" style="text-align:right">金额</th><th class="c-pct" style="text-align:right">占比</th></tr></thead>
-            <tbody>
-              <tr v-for="f in sortedRows" :key="f.id">
-                <td class="muted c-date">{{ dayjs(f.flow_time).format("MM-DD") }}</td>
-                <td class="c-cat">{{ f.category }}</td>
-                <td class="hide-mobile muted ellip">{{ f.description }}</td>
-                <td class="c-amt" style="text-align:right" :class="f.type"><b>{{ Number(f.amount).toFixed(2) }}</b></td>
-                <td class="c-pct muted" style="text-align:right">{{ pct(f) }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <div v-else-if="sortedRows.length" class="detail-list">
+            <div v-for="f in sortedRows" :key="f.id" class="detail-row">
+              <div class="dr-cat">
+                <span class="dr-icon">{{ catIcon(f.category) }}</span>
+                <span class="dr-catname">{{ f.category }}</span>
+              </div>
+              <div class="dr-main">
+                <div class="dr-line1">
+                  <span class="dr-name">{{ f.description || f.category }}</span>
+                  <span class="dr-meta">
+                    <span class="dr-pct">{{ pct(f) }}</span>
+                    <span class="dr-amt" :class="f.type">{{ (f.type === 'expense' ? '-' : '+') + Number(f.amount).toFixed(2) }}</span>
+                  </span>
+                </div>
+                <div class="dr-bar"><i :class="f.type" :style="{ width: pct(f) }"></i></div>
+                <div class="dr-date muted">{{ dayjs(f.flow_time).format('YYYY-MM-DD HH:mm') }}</div>
+              </div>
+            </div>
+          </div>
           <div v-else class="muted" style="padding:24px;text-align:center">没有匹配的流水</div>
         </div>
       </div>
@@ -297,17 +320,35 @@ export default { components: { EChart } };
 @media (max-width: 720px) { .cards { grid-template-columns: repeat(2,1fr); } .charts { grid-template-columns: 1fr; } .daily-card { grid-column: span 1; } }
 
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
-.modal { background: var(--surface); color: var(--text); width: min(860px, 100%); max-height: 80vh; border-radius: 14px; display: flex; flex-direction: column; box-shadow: var(--shadow); overflow: hidden; }
+.modal { background: var(--surface); color: var(--text); width: min(1600px, 100%); max-height: 84vh; border-radius: 14px; display: flex; flex-direction: column; box-shadow: var(--shadow); overflow: hidden; }
 .modal-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--surface-2); flex-wrap: wrap; }
 .modal-head .muted { font-size: 13px; }
 .seg.sm { padding: 2px; }
 .seg.sm button { padding: 4px 10px; font-size: 12px; border-radius: 6px; }
 .modal-head .btn { margin-left: auto; }
 .modal-body { padding: 8px 16px 16px; overflow: auto; }
-.modal-body .tbl { table-layout: fixed; width: 100%; }
-.modal-body .tbl th, .modal-body .tbl td { padding: 7px 8px; font-size: 13px; }
-.modal-body .tbl .c-date { width: 86px; white-space: nowrap; }
-.modal-body .tbl .c-cat { width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.modal-body .tbl .c-amt { width: 96px; text-align: right; white-space: nowrap; }
-.modal-body .tbl .c-pct { width: 72px; text-align: right; white-space: nowrap; }
+
+/* 明细列表：柱状图样式，每条记录 = 左(分类图标+名) + 右(行1 名称+百分比+金额 / 行2 柱状 / 行3 日期) */
+.detail-list { display: flex; flex-direction: column; gap: 10px; }
+.detail-row { display: flex; gap: 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+.dr-cat { flex: 0 0 150px; display: flex; align-items: center; gap: 8px; }
+.dr-icon { font-size: 22px; }
+.dr-catname { font-weight: 700; font-size: 15px; color: var(--text); }
+.dr-main { flex: 1; min-width: 0; }
+.dr-line1 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.dr-name { font-size: 15px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dr-meta { display: inline-flex; align-items: baseline; gap: 12px; flex-shrink: 0; }
+.dr-pct { font-size: 13px; color: var(--text-2); }
+.dr-amt { font-size: 15px; font-weight: 800; }
+.dr-amt.expense { color: var(--expense); }
+.dr-amt.income { color: var(--income); }
+.dr-bar { height: 8px; border-radius: 6px; background: var(--surface); overflow: hidden; margin: 7px 0 6px; }
+.dr-bar i { display: block; height: 100%; border-radius: 6px; }
+.dr-bar i.expense { background: var(--expense); }
+.dr-bar i.income { background: var(--income); }
+.dr-date { font-size: 12px; }
+@media (max-width: 640px) {
+  .detail-row { flex-direction: column; gap: 8px; }
+  .dr-cat { flex-basis: auto; }
+}
 </style>

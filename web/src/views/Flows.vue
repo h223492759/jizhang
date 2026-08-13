@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, computed, onMounted } from "vue";
 import dayjs from "dayjs";
 import api from "../api.js";
 import { useStore } from "../store.js";
@@ -54,12 +54,21 @@ async function load() {
     sortBy: sortBy.value,
     order: sortOrder.value,
   };
-  const { data: d } = await api.get("/flows", { params });
-  data.value = d;
+  try {
+    const { data: d } = await api.get("/flows", { params });
+    data.value = d;
+  } catch (e) {
+    toast(e.message);
+  }
 }
 async function init() {
-  const { data: f } = await api.get("/stats/facets");
-  facets.value = f;
+  // 即便 facets 拉取失败，也要保证流水列表能渲染，避免整页空白
+  try {
+    const { data: f } = await api.get("/stats/facets");
+    facets.value = f;
+  } catch (e) {
+    toast(e.message);
+  }
   await load();
 }
 onMounted(init);
@@ -98,14 +107,110 @@ const totalPages = () => Math.max(1, Math.ceil(data.value.total / pageSize));
 function catIcon(name) {
   return store.categories.find((c) => c.name === name)?.icon || "💰";
 }
+
+// ---------------- 定期记账 ----------------
+const tab = ref("flows");
+const recur = ref([]);
+const showRecurDialog = ref(false);
+const recurForm = ref(blankRecur());
+function blankRecur() {
+  return {
+    id: null,
+    type: "expense",
+    category: "",
+    description: "",
+    amount: "",
+    payment_method: "",
+    freq: "monthly",
+    day_of_month: 1,
+    month_of_year: 1,
+    note: "",
+  };
+}
+const recurCats = computed(() =>
+  store.categories.filter((c) => c.type === recurForm.value.type)
+);
+
+async function loadRecur() {
+  try {
+    const { data } = await api.get("/recurring");
+    recur.value = data;
+  } catch (e) {
+    toast(e.message);
+  }
+}
+// 打开「定期记账」：先把到期待生成的模板落成真实流水，再刷新模板列表
+async function openRecurTab() {
+  tab.value = "recurring";
+  try {
+    const { data } = await api.post("/recurring/generate");
+    if (data.generated > 0) toast(`已自动生成 ${data.generated} 笔定期记账`);
+  } catch {}
+  await loadRecur();
+}
+function addRecur() {
+  recurForm.value = blankRecur();
+  if (recurCats.value[0]) recurForm.value.category = recurCats.value[0].name;
+  showRecurDialog.value = true;
+}
+function editRecur(t) {
+  recurForm.value = { ...t, amount: String(t.amount) };
+  showRecurDialog.value = true;
+}
+async function saveRecur() {
+  const amt = Number(recurForm.value.amount);
+  if (!amt || amt <= 0) return toast("请输入正确金额");
+  try {
+    if (recurForm.value.id) {
+      await api.put(`/recurring/${recurForm.value.id}`, recurForm.value);
+      toast("已更新");
+    } else {
+      await api.post("/recurring", recurForm.value);
+      toast("已添加");
+    }
+    showRecurDialog.value = false;
+    await loadRecur();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+async function delRecur(t) {
+  if (!confirm(`确定删除「${t.category} ${t.amount}」这条定期记账模板吗？`)) return;
+  try {
+    await api.delete(`/recurring/${t.id}`);
+    toast("已删除");
+    await loadRecur();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+async function generateRecur() {
+  try {
+    const { data } = await api.post("/recurring/generate");
+    toast(data.generated > 0 ? `已生成 ${data.generated} 笔` : "暂无可生成的记录");
+    await loadRecur();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+function freqText(t) {
+  if (t.freq === "yearly") return `每年 ${t.month_of_year} 月 ${t.day_of_month} 号`;
+  return `每月 ${t.day_of_month} 号`;
+}
 </script>
 
 <template>
   <div>
     <div class="head-row">
       <h2 class="page-title" style="margin:0">流水记录</h2>
-      <button class="btn btn-primary" @click="add">＋ 记一笔</button>
+      <button class="btn btn-primary" v-if="tab==='flows'" @click="add">＋ 记一笔</button>
     </div>
+    <div class="tabs">
+      <button :class="{ on: tab==='flows' }" @click="tab='flows'">流水</button>
+      <button :class="{ on: tab==='recurring' }" @click="openRecurTab()">定期记账</button>
+    </div>
+
+    <template v-if="tab==='flows'">
 
     <!-- 筛选 -->
     <div class="card filters">
@@ -197,6 +302,94 @@ function catIcon(name) {
       <button class="btn btn-sm" :disabled="page>=totalPages()" @click="page++;load()">下一页</button>
     </div>
 
+    </template>
+
+    <template v-else>
+      <div class="row rc-head">
+        <div class="muted small">设定每月/每年固定收支，到时间自动生成流水（也可手动点「生成到期记录」）。</div>
+        <div class="row" style="gap:8px">
+          <button class="btn btn-sm" @click="generateRecur">⟳ 生成到期记录</button>
+          <button class="btn btn-primary btn-sm" @click="addRecur">＋ 新增模板</button>
+        </div>
+      </div>
+
+      <div v-if="!recur.length" class="card empty-tip muted">
+        还没有定期记账模板，点「新增模板」添加，例如「每月 1 号 房租 3000」「每年 1 月 1 号 年终奖 20000」。
+      </div>
+
+      <div v-else class="recur-grid">
+        <div v-for="t in recur" :key="t.id" class="card recur-card">
+          <div class="rc-top">
+            <span class="tag" :class="t.type">{{ t.type==='expense' ? '支出' : '收入' }}</span>
+            <b>{{ store.categories.find(c => c.name === t.category)?.icon || '💰' }} {{ t.category }}</b>
+            <span class="rc-amt" :class="t.type">¥{{ Number(t.amount).toFixed(2) }}</span>
+          </div>
+          <div class="rc-desc muted" v-if="t.description">{{ t.description }}</div>
+          <div class="rc-meta muted">
+            {{ freqText(t) }} · 下次：{{ t.next_run }}
+            <span v-if="t.payment_method"> · {{ t.payment_method }}</span>
+          </div>
+          <div v-if="t.note" class="rc-note muted small">备注：{{ t.note }}</div>
+          <div class="row rc-actions">
+            <button class="btn btn-sm" @click="editRecur(t)">编辑</button>
+            <button class="btn btn-sm btn-danger" @click="delRecur(t)">删除</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 新增 / 编辑定期记账模板 -->
+      <div v-if="showRecurDialog" class="modal-mask" @click.self="showRecurDialog=false">
+        <div class="modal" style="max-width:min(560px,96vw)">
+          <h3 class="modal-title">{{ recurForm.id ? '编辑定期记账' : '新增定期记账' }}</h3>
+
+          <div class="seg" style="margin-bottom:14px">
+            <button :class="{ on: recurForm.type==='expense' }" @click="recurForm.type='expense'">支出</button>
+            <button :class="{ on: recurForm.type==='income' }" @click="recurForm.type='income'">收入</button>
+          </div>
+
+          <label class="field"><span>分类</span>
+            <select class="select" v-model="recurForm.category">
+              <option v-for="c in recurCats" :key="c.id" :value="c.name">{{ c.icon }} {{ c.name }}</option>
+            </select>
+          </label>
+          <label class="field"><span>名称（可空，留空用分类名）</span>
+            <input class="input" v-model.trim="recurForm.description" placeholder="如：房租 / 工资" />
+          </label>
+          <label class="field"><span>金额</span>
+            <input class="input amount" :class="recurForm.type" type="number" step="0.01" v-model="recurForm.amount" placeholder="0.00" />
+          </label>
+          <label class="field"><span>周期</span>
+            <select class="select" v-model="recurForm.freq">
+              <option value="monthly">每月</option>
+              <option value="yearly">每年</option>
+            </select>
+          </label>
+          <div class="row" style="gap:10px">
+            <label class="field" style="flex:1">
+              <span>{{ recurForm.freq==='yearly' ? '月份' : '每月几号' }}</span>
+              <input class="input" type="number" min="1" :max="recurForm.freq==='yearly' ? 12 : 31" v-model.number="recurForm.month_of_year" v-if="recurForm.freq==='yearly'" />
+              <input class="input" type="number" min="1" max="31" v-model.number="recurForm.day_of_month" v-else />
+            </label>
+            <label class="field" style="flex:1" v-if="recurForm.freq==='yearly'">
+              <span>日期（号）</span>
+              <input class="input" type="number" min="1" max="31" v-model.number="recurForm.day_of_month" />
+            </label>
+          </div>
+          <label class="field"><span>支付方式（可空）</span>
+            <input class="input" v-model.trim="recurForm.payment_method" placeholder="微信 / 支付宝 / 银行卡…" />
+          </label>
+          <label class="field"><span>备注（可空）</span>
+            <input class="input" v-model.trim="recurForm.note" placeholder="选填" />
+          </label>
+
+          <div class="row" style="justify-content:flex-end;margin-top:6px">
+            <button class="btn" @click="showRecurDialog=false">取消</button>
+            <button class="btn btn-primary" @click="saveRecur">保存</button>
+          </div>
+        </div>
+      </div>
+    </template>
+
     <FlowDialog v-model="showDialog" :flow="editing" @saved="load" />
   </div>
 </template>
@@ -220,4 +413,17 @@ function catIcon(name) {
 .ic { margin-right: 6px; }
 .pager { justify-content: center; align-items: center; margin-top: 16px; gap: 14px; }
 .empty-tip { text-align: center; padding: 40px 0; }
+.tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.tabs button { border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); border-radius: 999px; padding: 7px 18px; font-size: 14px; cursor: pointer; }
+.tabs button:hover { border-color: var(--primary); color: var(--primary); }
+.tabs button.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.rc-head { justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px; }
+.recur-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.recur-card { padding: 16px; }
+.rc-top { display: flex; align-items: center; gap: 8px; }
+.rc-amt { margin-left: auto; font-size: 18px; font-weight: 700; }
+.rc-desc { margin-top: 6px; font-size: 14px; }
+.rc-meta { margin-top: 6px; font-size: 13px; }
+.rc-note { margin-top: 4px; }
+.rc-actions { margin-top: 12px; gap: 8px; }
 </style>

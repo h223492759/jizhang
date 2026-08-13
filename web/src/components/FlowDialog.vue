@@ -53,6 +53,29 @@ const isPinned = computed(() =>
   sug.value.presets.some((p) => p.name === form.value.description)
 );
 
+// 名称候选合并：常用(★) + 高频，去重后在名称输入框上方单行展示，最多 2 行（约 12 个），超出点「更多」展开
+const sugExpanded = ref(false);
+const MAX_CHIPS = 12;
+const sugChips = computed(() => {
+  const base = [];
+  for (const p of filteredSug.value.presets || []) base.push({ name: p.name, preset: true, id: p.id });
+  for (const f of filteredSug.value.frequent || []) base.push({ name: f.name, preset: false, count: f.count });
+  return { list: sugExpanded.value ? base : base.slice(0, MAX_CHIPS), overflow: base.length > MAX_CHIPS };
+});
+
+// 日期支持「20260813」整串输入，自动补成 YYYY-MM-DD
+function normDate(s) {
+  if (!s) return s;
+  s = String(s).trim();
+  const m = s.replace(/\D/g, "");
+  if (m.length === 8) return `${m.slice(0, 4)}-${m.slice(4, 6)}-${m.slice(6, 8)}`;
+  return s;
+}
+function onDateInput(e) {
+  const v = normDate(e.target.value);
+  if (v !== e.target.value) form.value.flow_time = v;
+}
+
 async function loadSuggestions() {
   if (!store.bookId) return;
   sugLoading.value = true;
@@ -218,7 +241,7 @@ function close() {
       <div class="row">
         <label class="field" style="flex: 1">
           <span>日期</span>
-          <input class="input" type="date" v-model="form.flow_time" />
+          <input class="input" type="text" v-model="form.flow_time" @input="onDateInput" placeholder="20260813 或 2026-08-13" />
         </label>
         <label class="field" style="flex: 1">
           <span>支付方式</span>
@@ -238,36 +261,21 @@ function close() {
             {{ isPinned ? "★ 取消常用" : "☆ 设为常用" }}
           </a>
         </span>
-        <input class="input" v-model.trim="form.description" placeholder="这笔钱花在哪儿（留空则自动用分类名，如「餐饮」）" />
 
-        <!-- 可点击的名称候选：常用置顶 → 高频 → 最近（按当前分类筛选） -->
-        <div class="sug" v-if="hasSug">
+        <!-- 名称候选（常用★ + 高频），显示在输入框上方，点一下即填入名称 -->
+        <div class="sug" v-if="sugChips.list.length">
           <div class="muted small" v-if="form.category">按分类「{{ form.category }}」筛选</div>
-          <div class="sug-line" v-if="filteredSug.presets.length">
-            <b class="sug-tag pin-tag">常用</b>
+          <div class="sug-line comb">
             <button
-              v-for="p in filteredSug.presets" :key="'p' + p.id"
-              class="chip chip-pin" :class="{ on: form.description === p.name }"
-              @click="applySug(p)"
-            >{{ p.name }}</button>
-          </div>
-          <div class="sug-line" v-if="filteredSug.frequent.length">
-            <b class="sug-tag">高频</b>
-            <button
-              v-for="p in filteredSug.frequent" :key="'f' + p.name"
-              class="chip" :class="{ on: form.description === p.name }"
-              @click="applySug(p)"
-            >{{ p.name }}<i>{{ p.count }}</i></button>
-          </div>
-          <div class="sug-line" v-if="filteredSug.recent.length">
-            <b class="sug-tag">最近</b>
-            <button
-              v-for="p in filteredSug.recent" :key="'r' + p.name"
-              class="chip" :class="{ on: form.description === p.name }"
-              @click="applySug(p)"
-            >{{ p.name }}</button>
+              v-for="(c, i) in sugChips.list" :key="i"
+              class="chip" :class="{ 'chip-pin': c.preset, on: form.description === c.name }"
+              @click="applySug({ name: c.name })"
+            ><em v-if="c.preset" class="star">★</em>{{ c.name }}<i v-if="c.count">{{ c.count }}</i></button>
+            <button v-if="sugChips.overflow" class="chip more" @click="sugExpanded = !sugExpanded">{{ sugExpanded ? "收起 ▲" : "更多 ▼" }}</button>
           </div>
         </div>
+
+        <input class="input" v-model.trim="form.description" placeholder="这笔钱花在哪儿（留空则自动用分类名，如「餐饮」）" />
       </div>
 
       <label class="field" v-if="store.currentBook && store.currentBook.members > 1">
@@ -295,14 +303,14 @@ function close() {
 .amount { font-size: 22px; font-weight: 700; }
 .amount.expense { color: var(--expense); }
 .amount.income { color: var(--income); }
-.modal { max-width: 780px; }
-.cat-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.modal { max-width: min(1600px, 96vw); }
+.cat-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
 .cat {
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 6px;
   border: 1px solid var(--border); background: var(--surface-2); border-radius: 10px;
-  padding: 9px 4px; cursor: pointer; font-size: 12px; color: var(--text-2);
+  padding: 10px 6px; cursor: pointer; font-size: 15px; font-weight: 600; color: var(--text-2);
 }
-.cat em { font-size: 19px; font-style: normal; }
+.cat em { font-size: 20px; font-style: normal; }
 .cat.on { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
 
 .lbl-row { display: flex; align-items: center; justify-content: space-between; }
@@ -310,7 +318,7 @@ function close() {
 .pin:hover { color: var(--primary); }
 .pin.on { color: var(--warning, #f59f00); }
 
-.sug { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.sug { margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
 .sug-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .sug-tag {
   font-size: 11px; font-weight: 600; color: var(--text-2);
@@ -319,11 +327,13 @@ function close() {
 .pin-tag { color: var(--primary); background: var(--primary-soft); }
 .chip {
   border: 1px solid var(--border); background: var(--surface); color: var(--text-2);
-  border-radius: 14px; padding: 4px 10px; font-size: 12.5px; cursor: pointer; line-height: 1.4;
+  border-radius: 14px; padding: 5px 12px; font-size: 14px; cursor: pointer; line-height: 1.4;
 }
 .chip:hover { border-color: var(--primary); color: var(--primary); }
 .chip.on { background: var(--primary); border-color: var(--primary); color: #fff; }
-.chip i { font-style: normal; opacity: .55; margin-left: 4px; font-size: 11px; }
+.chip i { font-style: normal; opacity: .55; margin-left: 5px; font-size: 12px; }
+.chip .star { color: var(--warning, #f59f00); font-style: normal; margin-right: 4px; }
+.chip.more { border-style: dashed; }
 .chip-pin { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
 .chip-pin.on { background: var(--primary); color: #fff; }
 </style>

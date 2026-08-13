@@ -4,6 +4,7 @@ import dayjs from "dayjs";
 import api from "../api.js";
 import { useStore } from "../store.js";
 import { toast } from "../toast.js";
+import EChart from "../components/EChart.vue";
 
 const store = useStore();
 const year = ref(dayjs().year());
@@ -39,13 +40,16 @@ function evalExpr(s) {
   }
 }
 const liveAmount = computed(() => evalExpr(form.value.amount));
-// 添加/编辑分类预算时，实时看每个所选分类的已用 / 剩余（可负）
+// 添加/编辑分类预算时，实时看每个所选分类的「分摊后预算 / 已用 / 剩余（可负）」
+// 多分类时输入的是【总额】，后端会平分到各分类，这里预览也要按分摊值算
 const livePreview = computed(() => {
   const amt = liveAmount.value;
   if (!isFinite(amt)) return [];
+  const count = form.value.categories.length || 1;
+  const per = amt / count;
   return form.value.categories.map((cat) => {
     const spent = data.value.spentByCategory?.[cat] || 0;
-    return { cat, spent, remaining: amt - spent };
+    return { cat, budget: per, spent, remaining: per - spent };
   });
 });
 
@@ -101,6 +105,34 @@ function barColor(p) {
 }
 function fmt(n) { return "¥" + Number(n || 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
+// 点击分类预算 → 弹出该分类「当年每月支出」柱状图（复用 /stats/monthly?category=）
+const showChart = ref(false);
+const chartCat = ref(null);
+const chartMonthly = ref([]);
+async function openChart(c) {
+  chartCat.value = c;
+  showChart.value = true;
+  chartMonthly.value = [];
+  try {
+    const { data } = await api.get("/stats/monthly", { params: { year: year.value, category: c.category } });
+    chartMonthly.value = data;
+  } catch (e) {
+    toast(e.message);
+  }
+}
+const chartTotal = computed(() => chartMonthly.value.reduce((s, m) => s + Number(m.expense || 0), 0));
+const chartOpt = computed(() => ({
+  tooltip: { trigger: "axis", formatter: (p) => `${p[0].axisValue}<br/>支出 ${fmt(p[0].data)}` },
+  grid: { left: 55, right: 18, top: 20, bottom: 30 },
+  xAxis: { type: "category", data: chartMonthly.value.map((m) => m.month.slice(5) + "月") },
+  yAxis: { type: "value" },
+  series: [{
+    name: "支出", type: "bar", cursor: "default",
+    data: chartMonthly.value.map((m) => Number(m.expense || 0)),
+    itemStyle: { color: "#ef4444", borderRadius: [4, 4, 0, 0] },
+  }],
+}));
+
 // 复制预算
 async function doCopy() {
   if (!copyFrom.value) return toast("请选择来源年份");
@@ -154,12 +186,12 @@ async function doCopy() {
       <button class="btn btn-sm btn-primary" @click="openCat">＋ 添加分类预算</button>
     </div>
     <div class="grid cat-list">
-      <div v-for="c in data.categories" :key="c.category" class="card cat-item">
+      <div v-for="c in data.categories" :key="c.category" class="card cat-item" @click="openChart(c)" title="点击查看每月支出柱状图">
         <div class="cat-top">
           <b>{{ store.categories.find(x => x.name === c.category)?.icon || '💰' }} {{ c.category }}</b>
           <div>
-            <button class="btn btn-sm" @click="editCat(c)">改</button>
-            <button class="btn btn-sm btn-danger" @click="delCat(c)">删</button>
+            <button class="btn btn-sm" @click.stop="editCat(c)">改</button>
+            <button class="btn btn-sm btn-danger" @click.stop="delCat(c)">删</button>
           </div>
         </div>
         <div class="bar"><i :style="{ width: Math.min(100, c.percent) + '%', background: barColor(c.percent) }"></i></div>
@@ -174,8 +206,14 @@ async function doCopy() {
 
     <!-- 添加/编辑预算弹窗 -->
     <div v-if="showDialog" class="modal-mask" @click.self="showDialog = false">
-      <div class="modal">
-        <h3 class="modal-title">{{ mode === 'total' ? '年度总预算' : (form.categories.length ? '编辑分类预算' : '添加分类预算') }}</h3>
+      <div class="modal" style="max-width:780px">
+        <div class="modal-head">
+          <h3 class="modal-title" style="margin:0">{{ mode === 'total' ? '年度总预算' : (form.categories.length ? '编辑分类预算' : '添加分类预算') }}</h3>
+          <div class="row head-btns">
+            <button class="btn" @click="showDialog = false">取消</button>
+            <button class="btn btn-primary" @click="save">保存</button>
+          </div>
+        </div>
 
         <template v-if="mode === 'cat'">
           <div class="field">
@@ -192,29 +230,41 @@ async function doCopy() {
         </template>
 
         <label class="field">
-          <span>{{ mode === 'total' ? '年度总预算金额' : '每个分类的预算金额' }}</span>
+          <span>{{ mode === 'total' ? '年度总预算金额' : (form.categories.length > 1 ? `总预算金额（将平分到 ${form.categories.length} 个分类）` : '该分类的预算金额') }}</span>
           <input class="input" v-model="form.amount" placeholder="如 1000 或 800+200" />
           <span class="muted small" v-if="isFinite(liveAmount) && form.amount !== String(liveAmount)">
             = {{ fmt(liveAmount) }}（算式结果）
           </span>
         </label>
 
-        <!-- 实时显示每个所选分类的已用 / 剩余（可负） -->
+        <!-- 实时显示每个所选分类的「分摊预算 / 已用 / 剩余（可负）」 -->
         <div class="preview-box" v-if="mode === 'cat' && livePreview.length">
-          <div class="muted small" style="margin-bottom:6px">按当前金额，各分类剩余：</div>
+          <div class="muted small" style="margin-bottom:6px">
+            按当前总额平分后，各分类：
+          </div>
           <div v-for="p in livePreview" :key="p.cat" class="prev-row">
             <span>{{ p.cat }}</span>
+            <span class="muted">预算 {{ fmt(p.budget) }}</span>
             <span class="muted">已用 {{ fmt(p.spent) }}</span>
             <span :class="p.remaining < 0 ? 'expense' : 'income'">
-              剩余 {{ p.remaining >= 0 ? fmt(p.remaining) : '-' + fmt(-p.remaining) }}
+              剩 {{ p.remaining >= 0 ? fmt(p.remaining) : '-' + fmt(-p.remaining) }}
             </span>
           </div>
         </div>
+      </div>
+    </div>
 
-        <div class="row" style="justify-content:flex-end">
-          <button class="btn" @click="showDialog = false">取消</button>
-          <button class="btn btn-primary" @click="save">保存</button>
+    <!-- 点击分类预算 → 当年每月支出柱状图 -->
+    <div v-if="showChart" class="modal-mask" @click.self="showChart = false">
+      <div class="modal" style="max-width:880px">
+        <div class="modal-head">
+          <h3 class="modal-title" style="margin:0">{{ chartCat?.category }} · {{ year }} 年每月支出</h3>
+          <button class="btn" @click="showChart = false">关闭</button>
         </div>
+        <div class="muted small" style="margin: 2px 0 10px">
+          全年合计 {{ fmt(chartTotal) }}
+        </div>
+        <EChart :option="chartOpt" :height="'340px'" />
       </div>
     </div>
 
@@ -246,7 +296,11 @@ async function doCopy() {
 .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .total-nums { display: flex; gap: 24px; font-size: 15px; flex-wrap: wrap; }
 .cat-list { grid-template-columns: repeat(4, 1fr); }
-.cat-item { padding: 16px; }
+.cat-item { padding: 16px; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.cat-item:hover { border-color: var(--primary); box-shadow: var(--shadow); }
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 2px; border-bottom: 1px solid var(--border); flex-wrap: wrap; margin-bottom: 16px; }
+.modal-head .modal-title { margin: 0; }
+.head-btns { gap: 8px; }
 .cat-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .cat-nums { display: flex; justify-content: space-between; font-size: 13px; margin-top: 8px; }
 .cat-pct { font-size: 12px; margin-top: 4px; color: var(--text-2); }

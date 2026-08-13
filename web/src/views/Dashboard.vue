@@ -101,8 +101,9 @@ function catIcon(name) {
         <div class="big" :class="overview.balance >= 0 ? 'income' : 'expense'">{{ fmt(overview.balance) }}</div>
       </div>
       <div class="card stat" v-if="!isShared">
-        <div class="muted">记账笔数</div>
-        <div class="big">{{ overview.count }}</div>
+        <div class="muted">记账笔数（总数）</div>
+        <div class="big">{{ overview.totalCount }}</div>
+        <div class="sub muted">本月 {{ overview.count }} 笔</div>
       </div>
     </div>
 
@@ -110,6 +111,7 @@ function catIcon(name) {
     <div class="card count-split" v-if="isShared">
       <div class="cs-row">
         <span class="muted">记账笔数</span>
+        <span class="cs-total">总数 <b>{{ overview.totalCount }}</b> 笔</span>
         <span class="cs-me">我 <b>{{ meCount }}</b> 笔</span>
         <span class="cs-others">其他成员 <b>{{ othersCount }}</b> 笔</span>
         <span class="muted small">（含导入，每笔记 1 次）</span>
@@ -165,8 +167,10 @@ function catIcon(name) {
 .head-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .cards { grid-template-columns: repeat(3, 1fr); }
 .stat .big { font-size: 22px; font-weight: 800; margin-top: 6px; }
+.stat .sub { font-size: 13px; margin-top: 2px; }
 .count-split { margin-top: 14px; }
 .cs-row { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; font-size: 15px; }
+.cs-total b { color: var(--text); }
 .cs-me b { color: var(--primary); }
 .cs-others b { color: var(--text); }
 .cs-row .small { font-size: 12px; }
