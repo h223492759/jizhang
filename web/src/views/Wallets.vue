@@ -47,12 +47,13 @@ const pctClamped = computed(() => Math.max(0, Math.min(100, total.value.percent)
 // 关联分类下拉：取账本全部分类
 const categoryOptions = computed(() => store.categories || []);
 
-// 各钱包余额占比图（专项金分布）
+// 各钱包「已存」余额占比图（专项金分布）：按实际余额（手动+关联）分布，
+// 余额 <= 0 的钱包不计入分布（饼图无法表示负值），下方给出提示
 const chartOpt = computed(() => {
-  const ws = data.value.wallets || [];
+  const ws = (data.value.wallets || []).filter((w) => Number(w.balance) > 0);
   if (!ws.length) return null;
   return {
-    tooltip: { trigger: "item", formatter: (p) => `${p.name}<br/>余额 <b>${fmt(p.value)}</b>（${p.percent}%）` },
+    tooltip: { trigger: "item", formatter: (p) => `${p.name}<br/>已存 <b>${fmt(p.value)}</b>（${p.percent}%）` },
     legend: { type: "scroll", bottom: 0 },
     series: [
       {
@@ -60,12 +61,14 @@ const chartOpt = computed(() => {
         radius: ["42%", "70%"],
         avoidLabelOverlap: true,
         itemStyle: { borderRadius: 6, borderColor: "var(--surface)", borderWidth: 2 },
-        label: { show: false },
-        data: ws.map((w) => ({ name: w.name, value: Math.max(0, Number(w.balance) || 0) })),
+        label: { show: true, formatter: "{b}\n{c}" },
+        data: ws.map((w) => ({ name: w.name, value: Number(w.balance) })),
       },
     ],
   };
 });
+// 余额为 0 / 负的钱包（不计入饼图分布）
+const hiddenWallets = computed(() => (data.value.wallets || []).filter((w) => Number(w.balance) <= 0));
 
 // ---------------- 新增 / 编辑钱包 ----------------
 const showWallet = ref(false);
@@ -183,10 +186,13 @@ async function delTxn(t) {
       </div>
     </div>
 
-    <!-- 专项金分布 -->
+    <!-- 专项金分布（已存余额） -->
     <div class="card" style="margin-top:16px" v-if="chartOpt">
-      <div class="section-title">专项金余额分布</div>
+      <div class="section-title">专项金已存余额分布</div>
       <EChart :option="chartOpt" height="300px" />
+      <div class="muted small" v-if="hiddenWallets.length" style="margin-top:8px">
+        未计入分布（已存 ≤ 0）：{{ hiddenWallets.map((w) => w.name).join("、") }}
+      </div>
     </div>
 
     <!-- 钱包卡片 -->

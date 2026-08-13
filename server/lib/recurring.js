@@ -69,11 +69,14 @@ export function generateDueRecurring(bookId, asOf = new Date()) {
         sched = today.date(dm);
       }
       const desc = (r.description || "").trim() || r.category;
+      // 归属：用模板上记录的账号（默认就是创建人），保证共享账本里各记各的、且双方可见
+      const attrUid = r.attribution_uid || owner.id;
+      const attrText = (r.attribution || "").trim() || owner.nickname;
       insert.run(
         bookId,
         owner.id,
-        owner.nickname,
-        owner.id,
+        attrText,
+        attrUid,
         r.type,
         r.amount,
         r.category,

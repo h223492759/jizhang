@@ -1,4 +1,5 @@
 import { Router } from "express";
+import dayjs from "dayjs";
 import { db } from "../db.js";
 import { auth, requireBook, wrap } from "../mw.js";
 
@@ -6,6 +7,13 @@ const r = Router();
 r.use(auth);
 
 const today = () => new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD（本地时区）
+
+// 生效日期归一：YYYY-MM-DD 或空（空=当前/未指定）
+const normAsOf = (s) => {
+  const d = String(s || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  return "";
+};
 
 // 操作人显示名：优先取用户表当前昵称，改昵称后历史记录同步
 const OP_EXPR = (t) =>
@@ -35,17 +43,54 @@ function computeNet(bookId) {
   return { asset, liability, net: asset - liability };
 }
 
-// 任何一次细则变动（新增/改金额/删除）都把「今天」这条历史刷新成最新净资产。
-// 同一天多次更新只保留最后一次 → 天然满足「每月只显示最后更新日期的数据」。
-function touchHistory(bookId, user) {
-  const { asset, liability, net } = computeNet(bookId);
-  db.prepare(
+// 任何一次细则变动（新增/改金额/删/回填历史）都重建每月历史快照：
+// - 从「最早有生效日期的细则」所在月到本月，逐月计算月末净资产并 upsert 一条（ymd=月末，本月用今天）
+// - 细则带 as_of 的，仅在其生效日(含)之后的月份计入；无 as_of 的视为一直持有，所有月份都计入
+// - 同一月多条更新只保留最后一条 → 满足「每月只显示一次数据」
+function rebuildHistory(bookId, user) {
+  const items = getItems(bookId);
+  const now = dayjs();
+  // 起始月：最早有生效日期的细则所在月，否则本月
+  let startYm = now.format("YYYY-MM");
+  for (const it of items) {
+    if (it.as_of && /^\d{4}-\d{2}-\d{2}$/.test(it.as_of)) {
+      const ym = it.as_of.slice(0, 7);
+      if (ym < startYm) startYm = ym;
+    }
+  }
+  const monthList = [];
+  let cur = dayjs(startYm + "-01");
+  while (!cur.isAfter(now, "month")) {
+    monthList.push(cur.format("YYYY-MM"));
+    cur = cur.add(1, "month");
+  }
+  const upsert = db.prepare(
     `INSERT INTO savings_history (book_id, ymd, asset, liability, net, user_id, op_user, updated_at)
      VALUES (?,?,?,?,?,?,?, datetime('now','localtime'))
      ON CONFLICT(book_id, ymd) DO UPDATE SET
        asset=excluded.asset, liability=excluded.liability, net=excluded.net,
        user_id=excluded.user_id, op_user=excluded.op_user, updated_at=excluded.updated_at`
-  ).run(bookId, today(), asset, liability, net, user?.id || 0, user?.nickname || "");
+  );
+  const tx = db.transaction(() => {
+    for (const ym of monthList) {
+      const monthEnd = dayjs(ym + "-01").endOf("month");
+      const isCur = ym === now.format("YYYY-MM");
+      const ymd = isCur ? now.format("YYYY-MM-DD") : monthEnd.format("YYYY-MM-DD");
+      let asset = 0,
+        liability = 0;
+      for (const it of items) {
+        const v = Number(it.amount) || 0;
+        if (it.as_of && /^\d{4}-\d{2}-\d{2}$/.test(it.as_of)) {
+          if (it.as_of > monthEnd.format("YYYY-MM-DD")) continue; // 该月尚未生效
+        }
+        if (Number(it.sign) < 0) liability += v;
+        else asset += v;
+      }
+      upsert.run(bookId, ymd, asset, liability, asset - liability, user?.id || 0, user?.nickname || "");
+    }
+  });
+  tx();
+  const { asset, liability, net } = computeNet(bookId);
   return { asset, liability, net };
 }
 
@@ -121,10 +166,10 @@ r.post(
       .get(req.bookId).m;
     const info = db
       .prepare(
-        `INSERT INTO savings_items (book_id,name,sign,amount,note,sort) VALUES (?,?,?,?,?,?)`
+        `INSERT INTO savings_items (book_id,name,sign,amount,note,sort,as_of) VALUES (?,?,?,?,?,?,?)`
       )
-      .run(req.bookId, name, sign, amount, (req.body?.note || "").toString().trim(), max + 1);
-    const snap = touchHistory(req.bookId, req.user);
+      .run(req.bookId, name, sign, amount, (req.body?.note || "").toString().trim(), max + 1, normAsOf(req.body?.as_of));
+    const snap = rebuildHistory(req.bookId, req.user);
     res.json({ id: Number(info.lastInsertRowid), ...snap });
   })
 );
@@ -149,10 +194,11 @@ r.put(
     const amount = req.body?.amount != null ? Number(req.body.amount) : cur.amount;
     if (!(amount >= 0)) return res.status(400).json({ error: "金额请填正数，正负用「计入方式」选择" });
     const sign = req.body?.sign != null ? (Number(req.body.sign) < 0 ? -1 : 1) : cur.sign;
+    const asOf = req.body?.as_of !== undefined ? normAsOf(req.body.as_of) : cur.as_of;
     db.prepare(
-      `UPDATE savings_items SET name=?, sign=?, amount=?, note=?, updated_at=datetime('now','localtime') WHERE id=?`
-    ).run(name, sign, amount, (req.body?.note ?? cur.note).toString().trim(), cur.id);
-    const snap = touchHistory(req.bookId, req.user);
+      `UPDATE savings_items SET name=?, sign=?, amount=?, note=?, as_of=?, updated_at=datetime('now','localtime') WHERE id=?`
+    ).run(name, sign, amount, (req.body?.note ?? cur.note).toString().trim(), asOf, cur.id);
+    const snap = rebuildHistory(req.bookId, req.user);
     res.json({ ok: true, ...snap });
   })
 );
@@ -175,7 +221,7 @@ r.post(
       }
     });
     tx();
-    const snap = touchHistory(req.bookId, req.user);
+    const snap = rebuildHistory(req.bookId, req.user);
     res.json({ ok: true, ...snap });
   })
 );
@@ -189,7 +235,7 @@ r.delete(
       req.params.id,
       req.bookId
     );
-    const snap = touchHistory(req.bookId, req.user);
+    const snap = rebuildHistory(req.bookId, req.user);
     res.json({ ok: true, ...snap });
   })
 );

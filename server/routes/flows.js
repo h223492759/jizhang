@@ -137,6 +137,52 @@ r.get(
   })
 );
 
+// 查重：把「同一天 + 同类型 + 同金额 + 同名称 + 同分类 + 同支付方式」视为同一笔，
+// 返回出现次数 > 1 的重复分组，每组带可删除的明细
+r.get(
+  "/duplicates",
+  requireBook,
+  wrap((req, res) => {
+    const rows = db
+      .prepare(
+        `SELECT f.id, f.type, f.amount, f.category, f.description, f.payment_method,
+                f.flow_time,
+                ${ATTR_SQL} AS attribution, u.color AS attribution_color
+         ${FROM_SQL}
+         WHERE f.book_id = @bookId`
+      )
+      .all({ bookId: req.bookId });
+    const groups = new Map();
+    for (const r of rows) {
+      const date = (r.flow_time || "").slice(0, 10);
+      const key = `${date}|${r.type}|${Math.round(Number(r.amount) * 100)}|${String(r.description || "").trim()}|${String(r.category || "其他").trim()}|${String(r.payment_method || "").trim()}`;
+      if (!groups.has(key)) groups.set(key, { key, type: r.type, count: 0, items: [] });
+      const g = groups.get(key);
+      g.count++;
+      g.items.push({
+        id: r.id,
+        flow_time: r.flow_time,
+        amount: r.amount,
+        category: r.category,
+        description: r.description,
+        payment_method: r.payment_method,
+        attribution: r.attribution,
+        attribution_color: r.attribution_color,
+      });
+    }
+    const dupGroups = [...groups.values()]
+      .filter((g) => g.count > 1)
+      .map((g) => ({
+        ...g,
+        // 按时间正序，第一项作为「保留项」参考
+        keepId: g.items[0]?.id,
+      }))
+      .sort((a, b) => b.count - a.count);
+    const totalDup = dupGroups.reduce((s, g) => s + (g.count - 1), 0);
+    res.json({ groups: dupGroups, totalDup, groupCount: dupGroups.length });
+  })
+);
+
 // 新建：默认归属到当前用户（共享账本自动归属创建人）
 r.post(
   "/",

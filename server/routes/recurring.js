@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { auth, requireBook, wrap } from "../mw.js";
+import { resolveAttribution } from "./flows.js";
 import { computeNextRun, generateDueRecurring, clampInt } from "../lib/recurring.js";
 
 const r = Router();
@@ -34,10 +35,12 @@ r.post(
     const dayOfMonth = clampInt(b.day_of_month, 1, 31, 1);
     const monthOfYear = clampInt(b.month_of_year, 1, 12, 1);
     const next_run = computeNextRun(freq, dayOfMonth, monthOfYear);
+    // 归属：默认按当前账号填充（共享账本双方都能看到对方的记录）
+    const attr = resolveAttribution(req.bookId, req.user, b);
     const info = db
       .prepare(
-        `INSERT INTO recurring (book_id,type,category,description,amount,payment_method,freq,day_of_month,month_of_year,note,next_run)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO recurring (book_id,type,category,description,amount,payment_method,freq,day_of_month,month_of_year,note,next_run,attribution_uid,attribution)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
       )
       .run(
         req.bookId,
@@ -50,7 +53,9 @@ r.post(
         dayOfMonth,
         monthOfYear,
         (b.note || "").trim(),
-        next_run
+        next_run,
+        attr.uid,
+        attr.text
       );
     res.json({ id: Number(info.lastInsertRowid), next_run });
   })
@@ -80,8 +85,16 @@ r.put(
         ? clampInt(b.month_of_year, 1, 12, cur.month_of_year)
         : cur.month_of_year;
     const next_run = computeNextRun(freq, dayOfMonth, monthOfYear);
+    // 归属：若显式传了就改，否则保持原模板归属
+    let attrUid = cur.attribution_uid;
+    let attrText = cur.attribution;
+    if (b.attribution_uid !== undefined || b.attribution !== undefined) {
+      const attr = resolveAttribution(req.bookId, req.user, b);
+      attrUid = attr.uid;
+      attrText = attr.text;
+    }
     db.prepare(
-      `UPDATE recurring SET type=?,category=?,description=?,amount=?,payment_method=?,freq=?,day_of_month=?,month_of_year=?,note=?,next_run=? WHERE id=?`
+      `UPDATE recurring SET type=?,category=?,description=?,amount=?,payment_method=?,freq=?,day_of_month=?,month_of_year=?,note=?,next_run=?,attribution_uid=?,attribution=? WHERE id=?`
     ).run(
       type,
       (b.category || cur.category).trim(),
@@ -93,6 +106,8 @@ r.put(
       monthOfYear,
       (b.note || cur.note).trim(),
       next_run,
+      attrUid,
+      attrText,
       cur.id
     );
     res.json({ ok: true, next_run });

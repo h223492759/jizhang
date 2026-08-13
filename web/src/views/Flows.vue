@@ -21,6 +21,39 @@ const sortOrder = ref("desc");
 // 分类下拉（按当前类型过滤，2 列展示完整）
 const catOpen = ref(false);
 
+// 查重：重复分组（同日期+类型+金额+名称+分类+支付方式）
+const showDup = ref(false);
+const dupGroups = ref([]);
+const dupTotal = ref(0);
+const dupLoading = ref(false);
+async function openDup() {
+  dupLoading.value = true;
+  showDup.value = true;
+  try {
+    const { data } = await api.get("/flows/duplicates");
+    dupGroups.value = data.groups || [];
+    dupTotal.value = data.totalDup || 0;
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    dupLoading.value = false;
+  }
+}
+async function delDupItem(g, item) {
+  if (!confirm("删除这条重复记录？")) return;
+  try {
+    await api.delete(`/flows/${item.id}`);
+    toast("已删除");
+    g.items = g.items.filter((x) => x.id !== item.id);
+    g.count--;
+    dupGroups.value = dupGroups.value.filter((x) => x.items.length > 1);
+    dupTotal.value = dupGroups.value.reduce((s, x) => s + (x.count - 1), 0);
+    load();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
 // 日期输入框支持「20260813」整串输入，自动补全为 YYYY-MM-DD
 function normDate(s) {
   if (!s) return "";
@@ -111,6 +144,7 @@ function catIcon(name) {
 // ---------------- 定期记账 ----------------
 const tab = ref("flows");
 const recur = ref([]);
+const members = ref([]);
 const showRecurDialog = ref(false);
 const recurForm = ref(blankRecur());
 function blankRecur() {
@@ -125,6 +159,7 @@ function blankRecur() {
     day_of_month: 1,
     month_of_year: 1,
     note: "",
+    attribution_uid: null, // 归属：默认按当前账号
   };
 }
 const recurCats = computed(() =>
@@ -139,9 +174,17 @@ async function loadRecur() {
     toast(e.message);
   }
 }
+// 账本成员（归属下拉用），默认当前账号
+async function loadMembers() {
+  try {
+    const { data } = await api.get("/flows/attributions");
+    members.value = data.members || [];
+  } catch {}
+}
 // 打开「定期记账」：先把到期待生成的模板落成真实流水，再刷新模板列表
 async function openRecurTab() {
   tab.value = "recurring";
+  loadMembers();
   try {
     const { data } = await api.post("/recurring/generate");
     if (data.generated > 0) toast(`已自动生成 ${data.generated} 笔定期记账`);
@@ -150,11 +193,12 @@ async function openRecurTab() {
 }
 function addRecur() {
   recurForm.value = blankRecur();
+  recurForm.value.attribution_uid = store.user?.id || null; // 默认按当前账号
   if (recurCats.value[0]) recurForm.value.category = recurCats.value[0].name;
   showRecurDialog.value = true;
 }
 function editRecur(t) {
-  recurForm.value = { ...t, amount: String(t.amount) };
+  recurForm.value = { ...t, amount: String(t.amount), attribution_uid: t.attribution_uid ?? null };
   showRecurDialog.value = true;
 }
 async function saveRecur() {
@@ -256,6 +300,7 @@ function freqText(t) {
 
       <button class="btn btn-primary btn-sm" @click="doFilter">筛选</button>
       <button class="btn btn-sm" @click="reset">重置</button>
+      <button class="btn btn-sm" @click="openDup">⚠ 查重</button>
     </div>
 
     <!-- 汇总 -->
@@ -378,6 +423,12 @@ function freqText(t) {
           <label class="field"><span>支付方式（可空）</span>
             <input class="input" v-model.trim="recurForm.payment_method" placeholder="微信 / 支付宝 / 银行卡…" />
           </label>
+          <label class="field"><span>归属（默认当前账号，共享账本双方都能看到）</span>
+            <select class="select" v-model.number="recurForm.attribution_uid">
+              <option :value="null">不指定</option>
+              <option v-for="m in members" :key="m.id" :value="m.id">{{ m.nickname }}</option>
+            </select>
+          </label>
           <label class="field"><span>备注（可空）</span>
             <input class="input" v-model.trim="recurForm.note" placeholder="选填" />
           </label>
@@ -389,6 +440,42 @@ function freqText(t) {
         </div>
       </div>
     </template>
+
+    <!-- 查重弹窗 -->
+    <div v-if="showDup" class="modal-mask" @click.self="showDup = false">
+      <div class="modal" style="max-width:680px">
+        <div class="modal-head">
+          <h3 class="modal-title" style="margin:0">查重结果</h3>
+          <div class="row" style="gap:8px">
+            <button class="btn" @click="showDup = false">关闭</button>
+          </div>
+        </div>
+        <div class="muted small" style="margin-bottom:10px">
+          同一天、同类型、同金额、同名称、同分类、同支付方式视为重复。共发现
+          <b>{{ dupTotal }}</b> 条可删的重复记录（保留每组最早一条，其余可手动删除）。
+        </div>
+        <div v-if="dupLoading" class="muted" style="padding:20px 0;text-align:center">加载中…</div>
+        <div v-else-if="!dupGroups.length" class="muted empty-tip">没有发现重复记录 🎉</div>
+        <div v-else class="dup-list">
+          <div v-for="(g, gi) in dupGroups" :key="gi" class="dup-group">
+            <div class="dup-key">
+              <span class="tag" :class="g.type">{{ g.type === 'expense' ? '支出' : '收入' }}</span>
+              <b>{{ g.items[0]?.category }}</b>
+              <span class="muted">¥{{ Number(g.items[0]?.amount).toFixed(2) }}</span>
+              <span class="muted small">· {{ g.items[0]?.description || '—' }}</span>
+              <span class="muted small">· {{ g.items[0]?.flow_time?.slice(0, 10) }}</span>
+              <span class="dup-cnt">重复 {{ g.count }} 次</span>
+            </div>
+            <div v-for="it in g.items" :key="it.id" class="dup-item" :class="{ keep: it.id === g.keepId }">
+              <span class="muted small">{{ it.flow_time?.slice(0, 10) }} {{ it.flow_time?.slice(11, 16) }}</span>
+              <span class="muted small">{{ it.attribution || '—' }}</span>
+              <span class="muted small" v-if="it.id === g.keepId">（保留）</span>
+              <button class="btn btn-sm btn-danger" v-if="it.id !== g.keepId" @click="delDupItem(g, it)">删</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <FlowDialog v-model="showDialog" :flow="editing" @saved="load" />
   </div>
@@ -426,4 +513,11 @@ function freqText(t) {
 .rc-meta { margin-top: 6px; font-size: 13px; }
 .rc-note { margin-top: 4px; }
 .rc-actions { margin-top: 12px; gap: 8px; }
+
+.dup-list { max-height: 60vh; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+.dup-group { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.dup-key { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.dup-cnt { margin-left: auto; font-size: 12px; color: var(--expense); }
+.dup-item { display: flex; align-items: center; gap: 10px; padding: 4px 0; border-top: 1px dashed var(--border); }
+.dup-item.keep { opacity: .6; }
 </style>

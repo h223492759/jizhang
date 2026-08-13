@@ -63,22 +63,22 @@ async function saveGoal() {
 // ---------------- 资金细则 ----------------
 const showItem = ref(false);
 const editingItem = ref(null);
-const itemForm = ref({ name: "", amount: "", sign: 1, note: "" });
+const itemForm = ref({ name: "", amount: "", sign: 1, note: "", as_of: "" });
 function openAddItem() {
   editingItem.value = null;
-  itemForm.value = { name: "", amount: "", sign: 1, note: "" }; // 默认为正
+  itemForm.value = { name: "", amount: "", sign: 1, note: "", as_of: "" }; // 默认为正
   showItem.value = true;
 }
 function openEditItem(it) {
   editingItem.value = it;
-  itemForm.value = { name: it.name, amount: String(it.amount), sign: it.sign, note: it.note || "" };
+  itemForm.value = { name: it.name, amount: String(it.amount), sign: it.sign, note: it.note || "", as_of: it.as_of || "" };
   showItem.value = true;
 }
 async function saveItem() {
   const amt = evalExpr(itemForm.value.amount || "0");
   if (!isFinite(amt) || amt < 0) return toast("金额请填正数，正负用「计入方式」选择");
   if (!itemForm.value.name.trim()) return toast("请填写名称");
-  const payload = { name: itemForm.value.name.trim(), amount: amt, sign: itemForm.value.sign, note: itemForm.value.note };
+  const payload = { name: itemForm.value.name.trim(), amount: amt, sign: itemForm.value.sign, note: itemForm.value.note, as_of: itemForm.value.as_of };
   try {
     if (editingItem.value) await api.put(`/savings/items/${editingItem.value.id}`, payload);
     else await api.post("/savings/items", payload);
@@ -237,7 +237,7 @@ const monthsDesc = computed(() => [...(data.value.months || [])].reverse());
         </div>
         <div class="muted small" v-if="it.note">{{ it.note }}</div>
         <div class="item-foot">
-          <span class="muted small">更新 {{ (it.updated_at || '').slice(0, 10) }}</span>
+          <span class="muted small">{{ it.as_of ? '生效 ' + it.as_of : '更新 ' + (it.updated_at || '').slice(0, 10) }}</span>
           <span>
             <button class="btn btn-sm" @click="openEditItem(it)">改</button>
             <button class="btn btn-sm btn-danger" @click="delItem(it)">删</button>
@@ -342,6 +342,10 @@ const monthsDesc = computed(() => [...(data.value.months || [])].reverse());
         <label class="field">
           <span>备注（可选）</span>
           <input class="input" v-model="itemForm.note" placeholder="如 招行卡" />
+        </label>
+        <label class="field">
+          <span>生效日期（可选：填历史日期可回填该月资产，留空视为当前）</span>
+          <input class="input" type="date" v-model="itemForm.as_of" style="width:180px" />
         </label>
       </div>
     </div>
