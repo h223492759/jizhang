@@ -3,6 +3,7 @@ import { ref, computed } from "vue";
 import dayjs from "dayjs";
 import api from "../api.js";
 import { toast } from "../toast.js";
+import { resolvePieDetail, resolveBarDetail } from "../lib/statsDetail.js";
 
 const range = ref("month"); // month | year | custom
 const custom = ref({ start: "", end: "" });
@@ -64,10 +65,7 @@ init();
 
 const PALETTE = ["#6366f1","#ef4444","#f59e0b","#10b981","#3b82f6","#ec4899","#8b5cf6","#14b8a6","#f97316","#64748b"];
 
-// 饼图标题 → 维度（点击时据此查询明细）
-const PIE_DIM = { "支出分类": "category", "消费归属": "attribution" };
-const DIM_LABEL = { category: "分类", payment: "支付方式", attribution: "归属人" };
-
+// 饼图标题即 series.name，点击时 params.seriesName 才能命中维度映射
 function pie(title, data) {
   return {
     title: { text: title, left: "center", textStyle: { fontSize: 14 } },
@@ -76,6 +74,7 @@ function pie(title, data) {
     legend: { bottom: 2, type: "plain", width: "92%", itemWidth: 10, itemHeight: 10, textStyle: { fontSize: 11 } },
     color: PALETTE,
     series: [{
+      name: title,
       type: "pie", radius: ["36%", "62%"], center: ["50%", "42%"],
       cursor: "pointer",
       avoidLabelOverlap: true,
@@ -142,18 +141,15 @@ const sortOrder = ref("desc");   // desc | asc
 
 // 饼图：按维度（分类/归属人）查看明细
 async function onPieClick(params) {
-  const dim = PIE_DIM[params.seriesName];
-  if (!dim || !params.name) return;
-  await openDetail(`${params.name}（按${DIM_LABEL[dim]}）`, { ...period.value, type: "expense", [dim]: params.name, pageSize: 300 });
+  const r = resolvePieDetail(params, period.value);
+  if (!r) return;
+  await openDetail(r.title, r.query);
 }
 // 柱状图：按某月 + 收/支 查看明细
 async function onBarClick(params) {
-  const m = monthly.value[params.dataIndex];
-  if (!m) return;
-  const type = params.seriesName === "收入" ? "income" : "expense";
-  const start = `${m.month}-01`;
-  const end = dayjs(start).endOf("month").format("YYYY-MM-DD");
-  await openDetail(`${m.month} ${type === "income" ? "收入" : "支出"}`, { start, end, type, pageSize: 300 });
+  const r = resolveBarDetail(params, monthly.value);
+  if (!r) return;
+  await openDetail(r.title, r.query);
 }
 
 async function openDetail(title, query) {

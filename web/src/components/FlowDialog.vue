@@ -38,6 +38,17 @@ const hasSug = computed(
   () =>
     sug.value.presets.length + sug.value.frequent.length + sug.value.recent.length > 0
 );
+// 按当前所选「分类」过滤候选：餐饮里常用名与日用的互不混在一起
+const filteredSug = computed(() => {
+  const cat = form.value.category;
+  if (!cat) return sug.value;
+  const f = {
+    presets: sug.value.presets.filter((p) => !p.category || p.category === cat),
+    frequent: sug.value.frequent.filter((p) => !p.category || p.category === cat),
+    recent: sug.value.recent.filter((p) => !p.category || p.category === cat),
+  };
+  return f.presets.length + f.frequent.length + f.recent.length ? f : sug.value;
+});
 const isPinned = computed(() =>
   sug.value.presets.some((p) => p.name === form.value.description)
 );
@@ -229,28 +240,29 @@ function close() {
         </span>
         <input class="input" v-model.trim="form.description" placeholder="这笔钱花在哪儿（留空则自动用分类名，如「餐饮」）" />
 
-        <!-- 可点击的名称候选：常用置顶 → 高频 → 最近 -->
+        <!-- 可点击的名称候选：常用置顶 → 高频 → 最近（按当前分类筛选） -->
         <div class="sug" v-if="hasSug">
-          <div class="sug-line" v-if="sug.presets.length">
+          <div class="muted small" v-if="form.category">按分类「{{ form.category }}」筛选</div>
+          <div class="sug-line" v-if="filteredSug.presets.length">
             <b class="sug-tag pin-tag">常用</b>
             <button
-              v-for="p in sug.presets" :key="'p' + p.id"
+              v-for="p in filteredSug.presets" :key="'p' + p.id"
               class="chip chip-pin" :class="{ on: form.description === p.name }"
               @click="applySug(p)"
             >{{ p.name }}</button>
           </div>
-          <div class="sug-line" v-if="sug.frequent.length">
+          <div class="sug-line" v-if="filteredSug.frequent.length">
             <b class="sug-tag">高频</b>
             <button
-              v-for="p in sug.frequent" :key="'f' + p.name"
+              v-for="p in filteredSug.frequent" :key="'f' + p.name"
               class="chip" :class="{ on: form.description === p.name }"
               @click="applySug(p)"
             >{{ p.name }}<i>{{ p.count }}</i></button>
           </div>
-          <div class="sug-line" v-if="sug.recent.length">
+          <div class="sug-line" v-if="filteredSug.recent.length">
             <b class="sug-tag">最近</b>
             <button
-              v-for="p in sug.recent" :key="'r' + p.name"
+              v-for="p in filteredSug.recent" :key="'r' + p.name"
               class="chip" :class="{ on: form.description === p.name }"
               @click="applySug(p)"
             >{{ p.name }}</button>
