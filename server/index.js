@@ -2,7 +2,7 @@ import express from "express";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { ensureAdmin, ensureDefaultCategoriesForAllBooks } from "./db.js";
+import { ensureAdmin, ensureDefaultCategoriesForAllBooks, applyCanonicalCategoryOrder } from "./db.js";
 import authRoutes from "./routes/auth.js";
 import bookRoutes from "./routes/books.js";
 import categoryRoutes from "./routes/categories.js";
@@ -22,6 +22,7 @@ app.use(express.json({ limit: "20mb" }));
 
 ensureAdmin();
 ensureDefaultCategoriesForAllBooks();
+applyCanonicalCategoryOrder();
 
 // ---------- API ----------
 app.get("/api/health", (req, res) => res.json({ ok: true, time: new Date().toISOString() }));

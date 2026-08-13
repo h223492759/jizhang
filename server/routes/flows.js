@@ -70,6 +70,8 @@ r.get(
       keyword,
       page = 1,
       pageSize = 20,
+      sortBy = "flow_time", // flow_time | amount
+      order = "desc", // asc | desc
     } = req.query;
 
     const where = ["f.book_id = @bookId"];
@@ -95,13 +97,16 @@ r.get(
 
     const limit = Math.min(Number(pageSize) || 20, 200);
     const offset = ((Number(page) || 1) - 1) * limit;
+    // 排序：金额 / 日期，升序或降序
+    const sortCol = sortBy === "amount" ? "f.amount" : "f.flow_time";
+    const sortDir = order === "asc" ? "ASC" : "DESC";
     const list = db
       .prepare(
         `SELECT f.id, f.book_id, f.user_id, f.type, f.amount, f.category,
                 f.payment_method, f.description, f.flow_time, f.created_at,
-                f.attribution_uid, ${ATTR_SQL} AS attribution
+                f.attribution_uid, ${ATTR_SQL} AS attribution, u.color AS attribution_color
          ${FROM_SQL} ${w}
-         ORDER BY f.flow_time DESC, f.id DESC LIMIT @limit OFFSET @offset`
+         ORDER BY ${sortCol} ${sortDir}, f.id DESC LIMIT @limit OFFSET @offset`
       )
       .all({ ...p, limit, offset });
 

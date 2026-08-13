@@ -6,47 +6,88 @@ import { aiConfig } from "../lib/ai.js";
 const r = Router();
 r.use(auth);
 
-// 读取当前 AI 记账配置（apiKey 脱敏，避免明文暴露在接口里）
-r.get("/ai", (req, res) => {
-  const stored = getSetting("ai_config", "");
-  let cfg = {};
-  if (stored) {
-    try { cfg = JSON.parse(stored); } catch { cfg = {}; }
+const KEY = "ai_models";
+
+// 读取已配置的模型列表（兼容旧版单配置 ai_config，首次访问自动转为一个模型）
+function readModels() {
+  const raw = getSetting(KEY, "");
+  if (!raw) {
+    const legacy = getSetting("ai_config", "");
+    if (legacy) {
+      try {
+        const c = JSON.parse(legacy);
+        const arr = [
+          {
+            id: "m_legacy",
+            name: "默认模型",
+            provider: c.provider || "",
+            baseUrl: c.baseUrl || "",
+            apiKey: c.apiKey || "",
+            model: c.model || "",
+            imageModel: c.imageModel || "",
+            isDefault: true,
+          },
+        ];
+        setSetting(KEY, JSON.stringify(arr));
+        return arr;
+      } catch {}
+    }
+    return [];
   }
-  const live = aiConfig(); // 合并环境变量后的「实际生效」配置
+  try {
+    return JSON.parse(raw) || [];
+  } catch {
+    return [];
+  }
+}
+function writeModels(arr) {
+  setSetting(KEY, JSON.stringify(arr));
+}
+
+// 读取所有 AI 模型（apiKey 脱敏，避免明文暴露）
+r.get("/ai", (req, res) => {
+  const models = readModels();
+  const live = aiConfig();
   res.json({
-    provider: cfg.provider || "",
-    baseUrl: cfg.baseUrl || live.baseUrl || "",
-    apiKey: cfg.apiKey ? "******" : "",
-    apiKeySet: !!cfg.apiKey,
-    model: cfg.model || live.model || "",
-    imageModel: cfg.imageModel || live.imageModel || "",
+    models: models.map((m) => ({
+      ...m,
+      apiKey: m.apiKey ? "******" : "",
+    })),
     enabled: live.enabled,
   });
 });
 
-// 保存 AI 记账配置（仅管理员可写）
+// 保存模型列表（整体替换）。每个模型可单独填 API Key；
+// 回填占位符「******」表示沿用原值，不修改。
 r.put(
   "/ai",
   requireAdmin,
   wrap((req, res) => {
-    const b = req.body || {};
-    const cur = getSetting("ai_config", "");
-    let curObj = {};
-    if (cur) {
-      try { curObj = JSON.parse(cur); } catch { curObj = {}; }
-    }
+    const input = Array.isArray(req.body?.models) ? req.body.models : [];
+    if (!input.length) return res.status(400).json({ error: "至少要添加一个模型" });
 
-    const provider = (b.provider || "").trim();
-    const baseUrl = (b.baseUrl || "").trim().replace(/\/$/, "");
-    // 前端回填的占位符「******」表示不想改 key，保留原值
-    let apiKey = (b.apiKey || "").trim();
-    if (apiKey === "******") apiKey = curObj.apiKey || "";
-    const model = (b.model || "").trim();
-    const imageModel = (b.imageModel || "").trim();
+    const cur = readModels();
+    const curById = Object.fromEntries(cur.map((m) => [m.id, m]));
 
-    const next = { provider, baseUrl, apiKey, model, imageModel };
-    setSetting("ai_config", JSON.stringify(next));
+    const out = input.map((m, i) => {
+      const id = m.id || `m_${Date.now()}_${i}`;
+      let apiKey = (m.apiKey || "").trim();
+      if (apiKey === "******") apiKey = curById[id]?.apiKey || "";
+      return {
+        id,
+        name: (m.name || "").trim() || "未命名模型",
+        provider: (m.provider || "").trim(),
+        baseUrl: (m.baseUrl || "").trim().replace(/\/$/, ""),
+        apiKey,
+        model: (m.model || "").trim(),
+        imageModel: (m.imageModel || "").trim(),
+        isDefault: !!m.isDefault || i === 0,
+      };
+    });
+    // 保证只有一个默认模型
+    if (!out.some((m) => m.isDefault)) out[0].isDefault = true;
+
+    writeModels(out);
     res.json({ ok: true });
   })
 );

@@ -295,7 +295,8 @@ function close() {
 .amount { font-size: 22px; font-weight: 700; }
 .amount.expense { color: var(--expense); }
 .amount.income { color: var(--income); }
-.cat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.modal { max-width: 780px; }
+.cat-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
 .cat {
   display: flex; flex-direction: column; align-items: center; gap: 3px;
   border: 1px solid var(--border); background: var(--surface-2); border-radius: 10px;

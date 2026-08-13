@@ -66,7 +66,8 @@ init();
 const PALETTE = ["#6366f1","#ef4444","#f59e0b","#10b981","#3b82f6","#ec4899","#8b5cf6","#14b8a6","#f97316","#64748b"];
 
 // 饼图标题即 series.name，点击时 params.seriesName 才能命中维度映射
-function pie(title, data) {
+// colorMap：可选 { 名称: 颜色 }，用于按用户颜色给归属饼图上色
+function pie(title, data, colorMap) {
   return {
     title: { text: title, left: "center", textStyle: { fontSize: 14 } },
     tooltip: { trigger: "item", formatter: "{b}: ¥{c} ({d}%)" },
@@ -80,10 +81,21 @@ function pie(title, data) {
       avoidLabelOverlap: true,
       itemStyle: { borderRadius: 6, borderColor: "transparent", borderWidth: 2 },
       label: { formatter: "{b}\n{d}%", fontSize: 11 },
-      data: data.map((d) => ({ name: d.name, value: Number(d.value.toFixed(2)) })),
+      data: data.map((d) => ({
+        name: d.name,
+        value: Number(d.value.toFixed(2)),
+        itemStyle: colorMap && colorMap[d.name] ? { color: colorMap[d.name] } : undefined,
+      })),
     }],
   };
 }
+
+// 归属饼图按「用户颜色」着色
+const attrColorMap = computed(() => {
+  const m = {};
+  for (const a of attribution.value) if (a.color) m[a.name] = a.color;
+  return m;
+});
 
 const dailyOpt = computed(() => ({
   tooltip: {
@@ -155,7 +167,7 @@ async function onBarClick(params) {
 async function openDetail(title, query) {
   detail.value = { open: true, title, rows: [], total: 0, loading: true };
   sortField.value = "amount";
-  sortOrder.value = "desc";
+  sortOrder.value = "asc"; // 点击图表默认按金额升序
   try {
     const { data } = await api.get("/flows", { params: query });
     detail.value.rows = data.list;
@@ -219,7 +231,7 @@ function pct(f) {
 
     <div class="grid charts">
       <div class="card clickable-hint"><EChart :option="pie('支出分类', category)" v-if="category.length" @click="onPieClick" /><div v-else class="empty muted">暂无支出数据</div></div>
-      <div class="card clickable-hint"><EChart :option="pie('消费归属', attribution)" v-if="attribution.length" @click="onPieClick" /><div v-else class="empty muted">暂无数据</div></div>
+      <div class="card clickable-hint"><EChart :option="pie('消费归属', attribution, attrColorMap)" v-if="attribution.length" @click="onPieClick" /><div v-else class="empty muted">暂无数据</div></div>
       <div class="card daily-card">
         <div class="section-title">每日流水趋势（悬浮查看当日明细）</div>
         <EChart :option="dailyOpt" v-if="daily.length" :height="'260px'" /><div v-else class="empty muted">暂无数据</div>
@@ -247,14 +259,14 @@ function pct(f) {
         <div class="modal-body">
           <div v-if="detail.loading" class="muted" style="padding:24px;text-align:center">加载中…</div>
           <table v-else-if="sortedRows.length" class="tbl">
-            <thead><tr><th>日期</th><th>分类</th><th class="hide-mobile">名称</th><th style="text-align:right">金额</th><th style="text-align:right">占比</th></tr></thead>
+            <thead><tr><th class="c-date">日期</th><th class="c-cat">分类</th><th class="hide-mobile">名称</th><th class="c-amt" style="text-align:right">金额</th><th class="c-pct" style="text-align:right">占比</th></tr></thead>
             <tbody>
               <tr v-for="f in sortedRows" :key="f.id">
-                <td class="muted">{{ dayjs(f.flow_time).format("MM-DD") }}</td>
-                <td>{{ f.category }}</td>
+                <td class="muted c-date">{{ dayjs(f.flow_time).format("MM-DD") }}</td>
+                <td class="c-cat">{{ f.category }}</td>
                 <td class="hide-mobile muted ellip">{{ f.description }}</td>
-                <td style="text-align:right" :class="f.type"><b>{{ Number(f.amount).toFixed(2) }}</b></td>
-                <td style="text-align:right" class="muted">{{ pct(f) }}</td>
+                <td class="c-amt" style="text-align:right" :class="f.type"><b>{{ Number(f.amount).toFixed(2) }}</b></td>
+                <td class="c-pct muted" style="text-align:right">{{ pct(f) }}</td>
               </tr>
             </tbody>
           </table>
@@ -285,12 +297,17 @@ export default { components: { EChart } };
 @media (max-width: 720px) { .cards { grid-template-columns: repeat(2,1fr); } .charts { grid-template-columns: 1fr; } .daily-card { grid-column: span 1; } }
 
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
-.modal { background: var(--surface); color: var(--text); width: min(640px, 100%); max-height: 80vh; border-radius: 14px; display: flex; flex-direction: column; box-shadow: var(--shadow); overflow: hidden; }
+.modal { background: var(--surface); color: var(--text); width: min(860px, 100%); max-height: 80vh; border-radius: 14px; display: flex; flex-direction: column; box-shadow: var(--shadow); overflow: hidden; }
 .modal-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--surface-2); flex-wrap: wrap; }
 .modal-head .muted { font-size: 13px; }
 .seg.sm { padding: 2px; }
 .seg.sm button { padding: 4px 10px; font-size: 12px; border-radius: 6px; }
 .modal-head .btn { margin-left: auto; }
 .modal-body { padding: 8px 16px 16px; overflow: auto; }
+.modal-body .tbl { table-layout: fixed; width: 100%; }
 .modal-body .tbl th, .modal-body .tbl td { padding: 7px 8px; font-size: 13px; }
+.modal-body .tbl .c-date { width: 86px; white-space: nowrap; }
+.modal-body .tbl .c-cat { width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.modal-body .tbl .c-amt { width: 96px; text-align: right; white-space: nowrap; }
+.modal-body .tbl .c-pct { width: 72px; text-align: right; white-space: nowrap; }
 </style>

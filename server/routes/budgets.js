@@ -13,7 +13,7 @@ r.get(
     const year = Number(req.query.year) || new Date().getFullYear();
 
     const budgets = db
-      .prepare("SELECT category, amount FROM budgets WHERE book_id=? AND year=?")
+      .prepare("SELECT category, amount, expression FROM budgets WHERE book_id=? AND year=?")
       .all(req.bookId, year);
     const total = budgets.find((b) => b.category === "");
     const cats = budgets.filter((b) => b.category !== "");
@@ -35,6 +35,14 @@ r.get(
       .all(req.bookId, String(year));
     const spentMap = Object.fromEntries(catSpent.map((x) => [x.category, x.s]));
 
+    // 全部分类（含未设预算的）的已花费，供前端「添加预算」时实时算剩余
+    const allCats = db
+      .prepare("SELECT name FROM categories WHERE book_id=? AND type='expense'")
+      .all(req.bookId)
+      .map((x) => x.name);
+    const spentByCategory = {};
+    for (const c of allCats) spentByCategory[c] = spentMap[c] || 0;
+
     res.json({
       year,
       total: {
@@ -48,29 +56,64 @@ r.get(
         return {
           category: c.category,
           amount: c.amount,
+          expression: c.expression || "",
           spent,
           remaining: c.amount - spent,
           percent: c.amount ? Math.round((spent / c.amount) * 100) : 0,
         };
       }),
+      spentByCategory,
     });
   })
 );
 
 // 设置/更新预算（category 为空字符串代表年度总预算）
+// 支持单分类（{category,amount}）或多分类批量（{categories:[...],amount}）
 r.post(
   "/",
   requireBook,
   wrap((req, res) => {
     const year = Number(req.body?.year) || new Date().getFullYear();
-    const category = (req.body?.category || "").trim();
     const amount = Number(req.body?.amount);
     if (!(amount >= 0)) return res.status(400).json({ error: "金额不合法" });
-    db.prepare(
-      `INSERT INTO budgets (book_id, year, category, amount) VALUES (?,?,?,?)
-       ON CONFLICT(book_id, year, category) DO UPDATE SET amount=excluded.amount`
-    ).run(req.bookId, year, category, amount);
-    res.json({ ok: true });
+    // 原始算式保留（如 "1000+200"），方便下次修改时回填
+    const expression = (req.body?.expression || "").toString().trim();
+    const cats = req.body?.categories && Array.isArray(req.body.categories)
+      ? req.body.categories.map((c) => (c || "").trim()).filter(Boolean)
+      : [(req.body?.category || "").trim()];
+
+    const stmt = db.prepare(
+      `INSERT INTO budgets (book_id, year, category, amount, expression) VALUES (?,?,?,?,?)
+       ON CONFLICT(book_id, year, category) DO UPDATE SET amount=excluded.amount, expression=excluded.expression`
+    );
+    const tx = db.transaction(() => {
+      for (const category of cats) stmt.run(req.bookId, year, category, amount, expression);
+    });
+    tx();
+    res.json({ ok: true, count: cats.length });
+  })
+);
+
+// 复制预算：把 fromYear 的「年度总预算 + 分类预算」复制到 toYear（覆盖式）
+r.post(
+  "/copy",
+  requireBook,
+  wrap((req, res) => {
+    const fromYear = Number(req.body?.fromYear);
+    const toYear = Number(req.body?.toYear) || new Date().getFullYear();
+    if (!fromYear) return res.status(400).json({ error: "请选择来源年份" });
+    const rows = db
+      .prepare("SELECT category, amount, expression FROM budgets WHERE book_id=? AND year=?")
+      .all(req.bookId, fromYear);
+    const stmt = db.prepare(
+      `INSERT INTO budgets (book_id, year, category, amount, expression) VALUES (?,?,?,?,?)
+       ON CONFLICT(book_id, year, category) DO UPDATE SET amount=excluded.amount, expression=excluded.expression`
+    );
+    const tx = db.transaction(() => {
+      for (const r of rows) stmt.run(req.bookId, toYear, r.category, r.amount, r.expression || "");
+    });
+    tx();
+    res.json({ ok: true, copied: rows.length });
   })
 );
 

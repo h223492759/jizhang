@@ -12,7 +12,7 @@ r.get(
   wrap((req, res) => {
     const list = db
       .prepare(
-        `SELECT u.id, u.username, u.nickname, u.role, u.created_at,
+        `SELECT u.id, u.username, u.nickname, u.role, u.created_at, u.color,
                 (SELECT COUNT(*) FROM book_members bm WHERE bm.user_id = u.id) AS books,
                 (SELECT COUNT(*) FROM flows f WHERE f.attribution_uid = u.id)  AS flows
            FROM users u ORDER BY u.id`
@@ -97,7 +97,7 @@ r.put(
     const id = Number(req.params.id);
     const target = db.prepare("SELECT * FROM users WHERE id=?").get(id);
     if (!target) return res.status(404).json({ error: "用户不存在" });
-    const { username, nickname, role, password } = req.body || {};
+    const { username, nickname, role, password, color } = req.body || {};
 
     db.transaction(() => {
       // 修改登录用户名（管理员也可改自己的）
@@ -153,10 +153,13 @@ r.put(
           id
         );
       }
+
+      if (color && /^#[0-9a-fA-F]{3,8}$/.test(color.trim()))
+        db.prepare("UPDATE users SET color=? WHERE id=?").run(color.trim(), id);
     })();
 
     const user = db
-      .prepare("SELECT id, username, nickname, role FROM users WHERE id=?")
+      .prepare("SELECT id, username, nickname, role, color FROM users WHERE id=?")
       .get(id);
     res.json({ ok: true, user });
   })

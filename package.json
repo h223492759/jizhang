@@ -1,5 +1,5 @@
 {
-  "name": "cashbook-nas",
+  "name": "jizhang-nas",
   "version": "1.0.0",
   "description": "自建记账本 - 单容器 + SQLite，适合飞牛 NAS 部署",
   "type": "module",

@@ -8,11 +8,20 @@ import FlowDialog from "../components/FlowDialog.vue";
 
 const store = useStore();
 const month = ref(dayjs().format("YYYY-MM"));
-const overview = ref({ income: 0, expense: 0, balance: 0, count: 0 });
+const overview = ref({ income: 0, expense: 0, balance: 0, count: 0, byUser: [] });
 const calendar = ref({});
 const recent = ref([]);
 const showDialog = ref(false);
 const preset = ref(null);
+
+// 共享账本：按归属人拆分「我 / 其他成员」的记账笔数（导入的也计入 count）
+const isShared = computed(() => (store.currentBook?.members || 0) > 1);
+const meCount = computed(() => {
+  const nick = store.user?.nickname;
+  const me = overview.value.byUser?.find((x) => x.name === nick);
+  return me?.count || 0;
+});
+const othersCount = computed(() => Math.max(0, (overview.value.count || 0) - meCount.value));
 
 const monthStart = computed(() => month.value + "-01");
 const monthEnd = computed(() => dayjs(monthStart.value).endOf("month").format("YYYY-MM-DD"));
@@ -91,9 +100,19 @@ function catIcon(name) {
         <div class="muted">本月结余</div>
         <div class="big" :class="overview.balance >= 0 ? 'income' : 'expense'">{{ fmt(overview.balance) }}</div>
       </div>
-      <div class="card stat">
+      <div class="card stat" v-if="!isShared">
         <div class="muted">记账笔数</div>
         <div class="big">{{ overview.count }}</div>
+      </div>
+    </div>
+
+    <!-- 共享账本：按「我 / 其他成员」拆分的记账笔数，放在收入/支出/结余下方 -->
+    <div class="card count-split" v-if="isShared">
+      <div class="cs-row">
+        <span class="muted">记账笔数</span>
+        <span class="cs-me">我 <b>{{ meCount }}</b> 笔</span>
+        <span class="cs-others">其他成员 <b>{{ othersCount }}</b> 笔</span>
+        <span class="muted small">（含导入，每笔记 1 次）</span>
       </div>
     </div>
 
@@ -144,8 +163,13 @@ function catIcon(name) {
 
 <style scoped>
 .head-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-.cards { grid-template-columns: repeat(4, 1fr); }
+.cards { grid-template-columns: repeat(3, 1fr); }
 .stat .big { font-size: 22px; font-weight: 800; margin-top: 6px; }
+.count-split { margin-top: 14px; }
+.cs-row { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; font-size: 15px; }
+.cs-me b { color: var(--primary); }
+.cs-others b { color: var(--text); }
+.cs-row .small { font-size: 12px; }
 .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .week { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; color: var(--text-2); font-size: 12px; margin-bottom: 6px; }
 .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }

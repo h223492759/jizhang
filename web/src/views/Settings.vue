@@ -10,13 +10,12 @@ const pwd = ref({ oldPassword: "", newPassword: "" });
 
 const isAdmin = computed(() => store.user?.role === "admin");
 
-// ---------------- AI 记账设置 ----------------
-const aiForm = reactive({ provider: "", baseUrl: "", apiKey: "", model: "", imageModel: "" });
+// ---------------- AI 记账设置（支持多个模型） ----------------
+const aiModels = ref([]); // [{id,name,provider,baseUrl,apiKey,model,imageModel,isDefault}]
 const aiStatus = ref({ enabled: false });
 const aiSaving = ref(false);
 
 // 常见服务商预设（均为 OpenAI 兼容 /chat/completions 接口）
-// 选「自定义」可填写任意 OpenAI 兼容接口（自建网关、其他厂商等），地址与模型自由填。
 const PROVIDER_GROUPS = [
   { group: "国内服务商", items: [
     { key: "zhipu", label: "智谱 AI（BigModel）", baseUrl: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4-flash", imageModel: "glm-4v-flash" },
@@ -41,42 +40,48 @@ const PROVIDER_GROUPS = [
 ];
 const PROVIDER_MAP = Object.fromEntries(PROVIDER_GROUPS.flatMap((g) => g.items.map((i) => [i.key, i])));
 
-function onProvider() {
-  const p = PROVIDER_MAP[aiForm.provider];
-  if (p) {
-    aiForm.baseUrl = p.baseUrl;
-    aiForm.model = p.model;
-    aiForm.imageModel = p.imageModel;
-  }
-}
-
 async function loadAi() {
   if (!isAdmin.value) return;
   try {
     const { data } = await api.get("/settings/ai");
-    aiForm.provider = data.provider || "";
-    aiForm.baseUrl = data.baseUrl || "";
-    aiForm.apiKey = data.apiKey || ""; // 已保存时返回 "******" 占位
-    aiForm.model = data.model || "";
-    aiForm.imageModel = data.imageModel || "";
+    aiModels.value = data.models || [];
     aiStatus.value = { enabled: data.enabled };
   } catch {}
 }
 onMounted(loadAi);
 
+// 选服务商预设 → 自动填好地址与模型
+function applyProvider(m) {
+  const p = PROVIDER_MAP[m.provider];
+  if (p) {
+    m.baseUrl = p.baseUrl;
+    m.model = p.model;
+    m.imageModel = p.imageModel;
+  }
+}
+function addModel() {
+  aiModels.value.push({
+    id: "", name: "", provider: "", baseUrl: "", apiKey: "", model: "", imageModel: "",
+    isDefault: aiModels.value.length === 0,
+  });
+}
+function removeModel(i) {
+  aiModels.value.splice(i, 1);
+  if (aiModels.value.length && !aiModels.value.some((m) => m.isDefault))
+    aiModels.value[0].isDefault = true;
+}
+function setDefault(i) {
+  aiModels.value.forEach((m, idx) => (m.isDefault = idx === i));
+}
+
 async function saveAi() {
-  if (!aiForm.baseUrl.trim()) return toast("请填写 API 地址");
+  if (!aiModels.value.length) return toast("请至少添加一个模型");
+  if (!aiModels.value.some((m) => m.baseUrl.trim())) return toast("请为每个模型填写 API 地址");
   aiSaving.value = true;
   try {
-    await api.put("/settings/ai", {
-      provider: aiForm.provider,
-      baseUrl: aiForm.baseUrl.trim(),
-      apiKey: aiForm.apiKey,
-      model: aiForm.model.trim(),
-      imageModel: aiForm.imageModel.trim(),
-    });
+    await api.put("/settings/ai", { models: aiModels.value.map((m) => ({ ...m })) });
     toast("AI 记账设置已保存");
-    aiStatus.value = { enabled: true };
+    await loadAi();
     store.fetchAiStatus();
   } catch (e) {
     toast(e.message);
@@ -123,50 +128,53 @@ async function savePwd() {
       <button class="btn btn-primary" @click="savePwd">修改密码</button>
     </div>
 
-    <!-- AI 记账设置：仅管理员可配置（全局生效） -->
+    <!-- AI 记账设置：仅管理员可配置（全局生效，支持多个模型） -->
     <div class="card" style="margin-top:16px" v-if="isAdmin">
       <div class="section-title">AI 记账设置</div>
       <p class="muted" style="font-size:13px;margin:0 0 14px;line-height:1.7">
-        配置后可在「AI 记账」页用一句话或一张小票截图自动记账。<br />
-        已内置多家服务商预设（智谱 / DeepSeek / 通义千问 / Kimi / 硅基流动 / 百川 / MiniMax / 阶跃 / 火山方舟 / OpenAI / OpenRouter / Gemini / 本地 Ollama 等），<b>选一个会自动填好地址与模型</b>；也可选「自定义」填你自己的任意 OpenAI 兼容接口。<br />
+        可添加<b>多个模型</b>（例如你自有其它厂商的 Key）。列表里每条是一个模型，点「＋ 新增模型」继续添加；勾选「默认」的那条用于记账。<br />
+        已内置多家服务商预设（智谱 / DeepSeek / 通义 / Kimi / 硅基流动 / 百川 / MiniMax / 阶跃 / 火山方舟 / OpenAI / OpenRouter / Gemini / 本地 Ollama 等），<b>选一个会自动填好地址与模型</b>；也可选「自定义」填任意 OpenAI 兼容接口。<br />
         例：<b>智谱</b>免费模型文本 <code>glm-4-flash</code>、图片 <code>glm-4v-flash</code>，在
         <a href="https://open.bigmodel.cn" target="_blank" rel="noreferrer">开放平台</a> 拿到 Key 填下方即可。
       </p>
 
-      <div class="row form-row">
-        <label class="field" style="flex:1;min-width:220px">
-          <span>服务商（预设）</span>
-          <select class="select" v-model="aiForm.provider" @change="onProvider">
+      <div class="model-card" v-for="(m, i) in aiModels" :key="i">
+        <div class="row" style="align-items:center;gap:10px;flex-wrap:wrap">
+          <input class="input" style="flex:1;min-width:140px" v-model.trim="m.name" placeholder="模型名称，如 智谱" />
+          <label class="radio"><input type="radio" :checked="m.isDefault" @change="setDefault(i)" /> 默认</label>
+          <button class="btn btn-sm btn-danger" @click="removeModel(i)">删除</button>
+        </div>
+        <div class="row form-row" style="margin-top:8px">
+          <select class="select" style="min-width:200px" v-model="m.provider" @change="applyProvider(m)">
+            <option value="">自定义 / 其他</option>
             <optgroup v-for="g in PROVIDER_GROUPS" :key="g.group" :label="g.group">
               <option v-for="p in g.items" :key="p.key" :value="p.key">{{ p.label }}</option>
             </optgroup>
           </select>
-        </label>
-        <label class="field" style="flex:2;min-width:240px">
-          <span>API 地址（Base URL）</span>
-          <input class="input" v-model.trim="aiForm.baseUrl" placeholder="https://open.bigmodel.cn/api/paas/v4" />
-        </label>
-      </div>
-      <p class="muted" style="font-size:12.5px;margin:-4px 0 14px;line-height:1.6">
-        选「自定义 / 其他 OpenAI 兼容接口」可填写<strong>任意</strong> OpenAI 风格地址（自建模型网关、其他厂商等），模型名按该平台实际填写即可。
-      </p>
-
-      <div class="row form-row">
-        <label class="field" style="flex:2;min-width:240px">
-          <span>API Key</span>
-          <input class="input" type="password" v-model="aiForm.apiKey" placeholder="已保存则显示 ••••，留空保持不变" />
-        </label>
-        <label class="field" style="flex:1;min-width:160px">
-          <span>文本模型</span>
-          <input class="input" v-model.trim="aiForm.model" placeholder="glm-4-flash" />
-        </label>
-        <label class="field" style="flex:1;min-width:160px">
-          <span>图片/视觉模型</span>
-          <input class="input" v-model.trim="aiForm.imageModel" placeholder="glm-4v-flash" />
-        </label>
+          <label class="field" style="flex:2;min-width:220px">
+            <span>API 地址（Base URL）</span>
+            <input class="input" v-model.trim="m.baseUrl" placeholder="https://open.bigmodel.cn/api/paas/v4" />
+          </label>
+        </div>
+        <div class="row form-row" style="margin-top:8px">
+          <label class="field" style="flex:2;min-width:200px">
+            <span>API Key{{ m.apiKey === '******' ? '（已保存，留空保持不变）' : '' }}</span>
+            <input class="input" type="password" v-model="m.apiKey" placeholder="API Key" />
+          </label>
+          <label class="field" style="flex:1;min-width:140px">
+            <span>文本模型</span>
+            <input class="input" v-model.trim="m.model" placeholder="glm-4-flash" />
+          </label>
+          <label class="field" style="flex:1;min-width:140px">
+            <span>图片/视觉模型</span>
+            <input class="input" v-model.trim="m.imageModel" placeholder="glm-4v-flash" />
+          </label>
+        </div>
       </div>
 
-      <div class="row" style="align-items:center;gap:14px;margin-top:4px">
+      <button class="btn btn-sm" style="margin-top:6px" @click="addModel">＋ 新增模型</button>
+
+      <div class="row" style="align-items:center;gap:14px;margin-top:14px">
         <span class="tag" :style="{ color: aiStatus.enabled ? 'var(--income)' : 'var(--text-2)' }">
           {{ aiStatus.enabled ? "● 已启用" : "○ 未启用" }}
         </span>

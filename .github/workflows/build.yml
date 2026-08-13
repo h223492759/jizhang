@@ -1,7 +1,7 @@
 name: Build and Push Image
 
 # 在 GitHub 上自动把 jizhang 构建成多架构镜像，并推送到：
-#   1) Docker Hub  —— 飞牛 NAS 通过 docker.io 镜像源拉取（已验证你的网络可通，与 cashbook4 同路径）
+#   1) Docker Hub  —— 飞牛 NAS 通过 docker.io 镜像源拉取（已验证你的网络可通）
 #   2) GHCR        —— 备用（GitHub 容器仓库，GITHUB_TOKEN 免密）
 # 推完后在飞牛上只要 `docker compose up -d` 拉镜像即可，无需在 NAS 上编译。
 #

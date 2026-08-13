@@ -10,3 +10,5 @@ data/
 .DS_Store
 Thumbs.db
 test_*.csv
+.testdata/
+data.backup-*/

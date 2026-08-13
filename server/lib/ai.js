@@ -1,20 +1,55 @@
 import dayjs from "dayjs";
 import { getSetting } from "../db.js";
 
-// 读取 AI 配置：优先用「设置页」里保存的（DB settings），其次环境变量。
+// 读取已保存的模型列表（兼容旧版单配置）
+function readModels() {
+  const raw = getSetting("ai_models", "");
+  if (!raw) {
+    const legacy = getSetting("ai_config", "");
+    if (legacy) {
+      try {
+        const c = JSON.parse(legacy);
+        return [
+          {
+            provider: c.provider || "",
+            baseUrl: c.baseUrl || "",
+            apiKey: c.apiKey || "",
+            model: c.model || "",
+            imageModel: c.imageModel || "",
+            isDefault: true,
+          },
+        ];
+      } catch {}
+    }
+    return [];
+  }
+  try {
+    return JSON.parse(raw) || [];
+  } catch {
+    return [];
+  }
+}
+
+// 读取 AI 配置：支持配置「多个模型」，取标记为默认（isDefault）的那个；
+// 若没有标记则取第一个。DB 值优先于环境变量。
 // 兼容任何 OpenAI 风格接口（OpenAI / 智谱 / DeepSeek / 通义 / 本地 Ollama、LocalAI 等）
 export function aiConfig() {
-  let dbCfg = {};
-  const raw = getSetting("ai_config", "");
-  if (raw) {
-    try { dbCfg = JSON.parse(raw); } catch { dbCfg = {}; }
-  }
-  const baseUrl = (dbCfg.baseUrl || process.env.AI_BASE_URL || "").replace(/\/$/, "");
-  const apiKey = dbCfg.apiKey || process.env.AI_API_KEY || "";
-  const model = dbCfg.model || process.env.AI_MODEL || "gpt-4o-mini";
-  const imageModel = dbCfg.imageModel || process.env.AI_IMAGE_MODEL || model;
+  const models = readModels();
+  const def = models.find((m) => m.isDefault) || models[0] || {};
+  const baseUrl = (def.baseUrl || process.env.AI_BASE_URL || "").replace(/\/$/, "");
+  const apiKey = def.apiKey || process.env.AI_API_KEY || "";
+  const model = def.model || process.env.AI_MODEL || "gpt-4o-mini";
+  const imageModel = def.imageModel || def.model || process.env.AI_IMAGE_MODEL || model;
   const enabled = !!baseUrl; // 只要配了地址就算开启（部分本地服务可无 key）
-  return { baseUrl, apiKey, model, imageModel, enabled, provider: dbCfg.provider || "" };
+  return {
+    baseUrl,
+    apiKey,
+    model,
+    imageModel,
+    enabled,
+    provider: def.provider || "",
+    name: def.name || "",
+  };
 }
 
 async function chat(messages, { json = false } = {}) {
@@ -67,6 +102,7 @@ export async function parseFlowImage(imageB64, text, categories) {
   const note = text && text.trim() ? `用户补充说明：${text.trim()}。` : "";
   const sys = `你是记账助手。根据用户上传的账单/小票图片${note}识别成一笔记账JSON：{"type":"expense或income","amount":数字,"category":"分类","description":"简述","payment_method":"支付方式或空"}。
 分类只能从这些里选最接近的一个：${names.join("、")}。
+${DISAMBIGUATION}
 默认为支出(expense)，收到/工资/红包/报销等为收入(income)。只输出JSON，不要任何解释。`;
   const url = imageB64.startsWith("data:") ? imageB64 : `data:image/jpeg;base64,${imageB64}`;
   try {
@@ -78,7 +114,7 @@ export async function parseFlowImage(imageB64, text, categories) {
       { json: true }
     );
     const obj = JSON.parse(content);
-    return normalize(obj, names, "ai");
+    return normalize(obj, names, "ai", text || "");
   } catch (e) {
     if (e.message !== "NO_AI") console.warn("[ai] 图片解析失败:", e.message);
     throw e;
@@ -86,13 +122,108 @@ export async function parseFlowImage(imageB64, text, categories) {
 }
 
 // ---------------- 一句话记账 ----------------
-// 优先用 LLM，失败/未配置时用规则解析兜底
+// 易混分类提醒：写进 prompt，让大模型少分错
+const DISAMBIGUATION =
+  "易混提醒：买菜/食材/生鲜/蔬菜/做饭材料 属于「餐饮」而不是「购物」；" +
+  "「购物」指衣服鞋包、日用百货、数码家电、家居等非食材实物商品；" +
+  "水果单独记「水果」，零食单独记「零食」，烟酒单独记「烟酒」，住房指房租/物业/水电。";
+
+// 本地高置信规则分类：命中则直接返回，跳过模型调用（更快、且避免大模型把「买菜」分到「购物」）
+const RULE_INCOME = [
+  { cat: "工资", kw: ["工资", "薪水", "月薪", "发工资", "工资到账", "薪资", "薪酬"] },
+  { cat: "兼职", kw: ["兼职", "外快", "接单", "私活", "副业", "赚外快"] },
+  { cat: "理财", kw: ["理财", "基金", "股票", "利息", "股息", "收益", "余额宝", "投资", "分红", "打新"] },
+];
+const RULE_EXPENSE = [
+  { cat: "餐饮", kw: ["吃饭", "饭", "餐", "早餐", "早饭", "午餐", "午饭", "晚餐", "晚饭", "夜宵", "外卖", "食堂", "餐厅", "饭店", "饭馆", "火锅", "烧烤", "麻辣烫", "面条", "米粉", "粥", "包子", "饺子", "馄饨", "寿司", "炒菜", "买菜", "食材", "生鲜", "蔬菜", "青菜", "肉", "鸡蛋", "牛奶", "做饭", "下厨", "煮", "炖", "厨房", "宴", "聚餐", "请客吃饭", "酒席", "自助餐", "咖啡", "奶茶", "饮料", "果汁", "小吃", "夜市", "菜场", "菜市场"] },
+  { cat: "水果", kw: ["水果", "苹果", "香蕉", "橙子", "桔子", "葡萄", "西瓜", "草莓", "芒果", "桃子", "菠萝", "车厘子", "榴莲", "梨", "猕猴桃"] },
+  { cat: "零食", kw: ["零食", "薯片", "饼干", "巧克力", "糖果", "瓜子", "坚果", "辣条", "膨化", "妙脆角"] },
+  { cat: "烟酒", kw: ["烟", "香烟", "烟盒", "酒", "啤酒", "白酒", "红酒", "洋酒", "黄酒", "鸡尾酒"] },
+  { cat: "交通", kw: ["地铁", "公交", "公共汽车", "打车", "滴滴", "出租", "网约车", "高铁", "火车", "动车", "加油", "油费", "停车", "停车费", "过路费", "etc", "骑行", "单车", "摩的"] },
+  { cat: "日用", kw: ["日用品", "纸巾", "卫生纸", "洗发", "沐浴", "牙膏", "牙刷", "洗衣", "洗洁精", "清洁", "厨卫", "杂物", "垃圾袋"] },
+  { cat: "服饰", kw: ["衣服", "服装", "上衣", "裤子", "裙子", "鞋子", "鞋", "包", "背包", "帽子", "围巾", "袜子", "内衣"] },
+  { cat: "美容", kw: ["美容", "化妆", "护肤品", "护肤", "美甲", "美发", "理发", "烫发", "染发", "spa", "按摩", "香水"] },
+  { cat: "住房", kw: ["房租", "房贷", "物业", "水电", "燃气", "暖气", "装修", "网费", "物业费"] },
+  { cat: "医疗", kw: ["药", "药品", "医院", "看病", "挂号", "体检", "牙", "诊所", "医保", "买药", "门诊"] },
+  { cat: "孩子", kw: ["宝宝", "娃", "幼儿园", "母婴", "尿布", "尿不湿", "奶粉", "童装", "早教"] },
+  { cat: "数码", kw: ["手机", "电脑", "相机", "耳机", "平板", "键盘", "鼠标", "充电", "显示器", "路由器"] },
+  { cat: "居家", kw: ["家具", "家电", "家居", "寝具", "灯具", "收纳", "床", "沙发", "窗帘"] },
+  { cat: "学习", kw: ["学习", "课程", "培训", "网课", "考试", "学费", "资料费", "补习"] },
+  { cat: "书籍", kw: ["书", "书籍", "小说", "课本", "教材", "杂志"] },
+  { cat: "运动", kw: ["健身", "跑步", "瑜伽", "球", "游泳", "运动", "场馆", "装备", "羽毛球", "篮球"] },
+  { cat: "娱乐", kw: ["电影", "游戏", "唱歌", "ktv", "娱乐", "演出", "门票", "游乐", "密室", "桌游", "展览"] },
+  { cat: "通讯", kw: ["话费", "电话费", "流量", "电话"] },
+  { cat: "旅行", kw: ["旅游", "旅行", "出游", "景点", "酒店", "机票", "火车票"] },
+  { cat: "宠物", kw: ["宠物", "猫", "狗", "猫粮", "狗粮", "兽医", "宠物医院"] },
+  { cat: "社交", kw: ["朋友", "聚会", "社交", "饭局"] },
+  { cat: "长辈", kw: ["父母", "爸妈", "爷爷", "奶奶", "外公", "外婆", "长辈", "养老", "孝敬"] },
+  { cat: "礼金", kw: ["随礼", "份子", "礼金", "出份子", "贺礼"] },
+  { cat: "人情", kw: ["人情", "人情往来"] },
+  { cat: "亲友", kw: ["亲戚", "亲友"] },
+  { cat: "礼物", kw: ["礼物", "送礼", "礼品", "生日礼物", "伴手礼"] },
+  { cat: "备婚", kw: ["婚礼", "备婚", "婚庆", "婚纱", "钻戒", "结婚"] },
+  { cat: "办公", kw: ["办公", "文具", "打印", "耗材", "办公用品"] },
+  { cat: "彩票", kw: ["彩票", "刮刮乐", "双色球", "大乐透"] },
+  { cat: "保险", kw: ["保险", "保费", "车险", "寿险", "医疗险", "意外险"] },
+  { cat: "汽车", kw: ["洗车", "保养", "年检", "汽车维修", "车船税", "修车"] },
+  { cat: "快递", kw: ["快递", "运费", "邮费", "寄件"] },
+  { cat: "捐赠", kw: ["捐赠", "捐款", "公益", "慈善", "施舍"] },
+];
+
+// 金额抽取：支持标准小数，以及口语「58块5」「12元5角」→ 58.5 / 12.5
+function extractAmount(text) {
+  const t = String(text).replace(/[块元]/g, ".");
+  const dec = t.match(/(\d+\.\d+)/);
+  if (dec) return Number(dec[1]);
+  const int = String(text).match(/(\d+(?:\.\d+)?)/);
+  return int ? Number(int[1]) : 0;
+}
+
+function ruleClassify(text, names) {
+  const t = String(text).toLowerCase();
+  const amount = extractAmount(text);
+  for (const r of RULE_INCOME) {
+    if (r.kw.some((k) => t.includes(k.toLowerCase())) && names.includes(r.cat))
+      return { type: "income", amount, category: r.cat, source: "rule" };
+  }
+  for (const r of RULE_EXPENSE) {
+    if (r.kw.some((k) => t.includes(k.toLowerCase())) && names.includes(r.cat))
+      return { type: "expense", amount, category: r.cat, source: "rule" };
+  }
+  return null;
+}
+
+// 高置信纠正：即便大模型分错也强制归位（如「超市买菜」必须是餐饮）
+function forceCorrect(rawText, obj) {
+  if (/(买菜|食材|生鲜|蔬|菜场|菜市场|做饭材料|下厨材料)/.test(rawText) && obj.type !== "income") {
+    obj.category = "餐饮";
+  }
+  return obj;
+}
+
+function buildResult({ type, amount, category, description = "", payment_method = "", source }) {
+  return {
+    type: type === "income" ? "income" : "expense",
+    amount: Math.abs(Number(amount)) || 0,
+    category,
+    description: description || category,
+    payment_method: payment_method || "",
+    flow_time: dayjs().format("YYYY-MM-DD HH:mm:ss"),
+    source,
+  };
+}
+
+// 优先用本地规则命中（常见场景直接返回，不调模型，更快更准）；
+// 命中不到再交给大模型；模型失败再回退到规则兜底。
 export async function parseFlowText(text, categories) {
   const names = categories.map((c) => c.name);
+  const rule = ruleClassify(text, names);
+  if (rule && rule.amount > 0) return buildResult(rule); // 高置信：不调模型，更快更准
   try {
     const sys = `你是记账助手。把用户的自然语言转成JSON：{"type":"expense或income","amount":数字,"category":"分类","description":"简述","payment_method":"支付方式或空"}。
 分类只能从这些里选最接近的一个：${names.join("、")}。
-默认为支出(expense)，收到/工资/红包/报销等为收入(income)。只输出JSON。`;
+${DISAMBIGUATION}
+默认为支出(expense)，收到/工资/红包收入/报销等为收入(income)。只输出JSON。`;
     const content = await chat(
       [
         { role: "system", content: sys },
@@ -101,61 +232,45 @@ export async function parseFlowText(text, categories) {
       { json: true }
     );
     const obj = JSON.parse(content);
-    return normalize(obj, names, "ai");
+    return normalize(obj, names, "ai", text);
   } catch (e) {
     if (e.message !== "NO_AI") console.warn("[ai] 解析回退规则:", e.message);
-    return ruleParse(text, names);
+    const fb = ruleClassify(text, names) || ruleParse(text, names);
+    return buildResult(fb);
   }
 }
 
-function normalize(obj, names, source) {
+function normalize(obj, names, source, rawText = "") {
+  const fixed = forceCorrect(rawText, obj);
   const category =
-    names.find((n) => n === obj.category) ||
-    names.find((n) => obj.category && n.includes(obj.category)) ||
-    (obj.type === "income" ? "其他收入" : "其他");
-  return {
-    type: obj.type === "income" ? "income" : "expense",
-    amount: Math.abs(Number(obj.amount)) || 0,
+    names.find((n) => n === fixed.category) ||
+    names.find((n) => fixed.category && (n.includes(fixed.category) || String(fixed.category).includes(n))) ||
+    (fixed.type === "income" ? "其它" : "其他");
+  return buildResult({
+    type: fixed.type,
+    amount: fixed.amount,
     category,
-    description: obj.description || "",
-    payment_method: obj.payment_method || "",
-    flow_time: dayjs().format("YYYY-MM-DD HH:mm:ss"),
+    description: fixed.description,
+    payment_method: fixed.payment_method,
     source,
-  };
+  });
 }
 
-// 规则兜底：抽取金额 + 关键词猜分类
+// 规则兜底：抽取金额 + 关键词猜分类（模型不可用时的最后手段）
 function ruleParse(text, names) {
-  const m = text.match(/(\d+(\.\d+)?)/);
-  const amount = m ? Number(m[1]) : 0;
-  const incomeKw = ["工资", "收入", "报销", "红包", "收到", "退款", "奖金", "利息", "分红"];
+  const m = extractAmount(text);
+  const amount = m;
+  const incomeKw = ["工资", "收入", "报销", "红包", "收到", "退款", "奖金", "利息", "分红", "理财", "兼职"];
   const type = incomeKw.some((k) => text.includes(k)) ? "income" : "expense";
-
-  const kwMap = {
-    餐饮: ["吃", "饭", "早餐", "午餐", "晚餐", "外卖", "餐", "咖啡", "奶茶", "零食"],
-    交通: ["地铁", "公交", "打车", "滴滴", "高铁", "火车", "机票", "油", "停车", "加油"],
-    购物: ["买", "衣服", "淘宝", "京东", "购物", "鞋"],
-    居住: ["房租", "水电", "物业", "燃气"],
-    娱乐: ["电影", "游戏", "唱歌", "娱乐", "旅游"],
-    医疗: ["药", "医院", "看病", "挂号"],
-    通讯: ["话费", "流量", "宽带"],
-    工资: ["工资", "薪水"],
-    红包: ["红包"],
-  };
-  let category = type === "income" ? "其他收入" : "其他";
-  for (const [cat, kws] of Object.entries(kwMap)) {
-    if (names.includes(cat) && kws.some((k) => text.includes(k))) {
-      category = cat;
-      break;
-    }
-  }
+  const category = type === "income"
+    ? (names.includes("其它") ? "其它" : names[0] || "其他")
+    : (names.includes("其他") ? "其他" : names.find((n) => n !== "其它") || "其他");
   return {
     type,
     amount,
     category,
     description: text.replace(/(\d+(\.\d+)?)(元|块|块钱)?/g, "").trim(),
     payment_method: "",
-    flow_time: dayjs().format("YYYY-MM-DD HH:mm:ss"),
     source: "rule",
   };
 }

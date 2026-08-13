@@ -73,4 +73,20 @@ r.delete(
   })
 );
 
+// 调序：传入同一类型下分类的 id 顺序数组，按数组下标写入 sort
+r.post(
+  "/reorder",
+  requireBook,
+  wrap((req, res) => {
+    const ids = (req.body?.ids || []).map(Number).filter((n) => n > 0);
+    if (!ids.length) return res.status(400).json({ error: "缺少排序数据" });
+    const stmt = db.prepare("UPDATE categories SET sort=? WHERE id=? AND book_id=?");
+    const tx = db.transaction(() => {
+      ids.forEach((id, i) => stmt.run(i + 1, id, req.bookId));
+    });
+    tx();
+    res.json({ ok: true });
+  })
+);
+
 export default r;

@@ -12,7 +12,8 @@ const showAdd = ref(false);
 const addForm = ref({ username: "", password: "", nickname: "", role: "user" });
 
 const editing = ref(null); // 正在编辑的用户
-const editForm = ref({ nickname: "", role: "user", password: "" });
+const editForm = ref({ nickname: "", role: "user", password: "", color: "#7c8cff" });
+const USER_COLORS = ["#6366f1","#ef4444","#f59e0b","#10b981","#3b82f6","#ec4899","#8b5cf6","#14b8a6","#f97316","#0ea5e9","#a855f7","#22c55e"];
 
 // 历史归属修复
 const unbound = ref([]);
@@ -77,7 +78,7 @@ async function submitAdd() {
 
 function openEdit(u) {
   editing.value = u;
-  editForm.value = { username: u.username, nickname: u.nickname, role: u.role, password: "" };
+  editForm.value = { username: u.username, nickname: u.nickname, role: u.role, password: "", color: u.color || "#7c8cff" };
 }
 
 async function submitEdit() {
@@ -88,6 +89,9 @@ async function submitEdit() {
     payload.nickname = editForm.value.nickname;
   if (editForm.value.role !== editing.value.role) payload.role = editForm.value.role;
   if (editForm.value.password) payload.password = editForm.value.password;
+  // 颜色有改动才提交（避免无谓写入）
+  if ((editForm.value.color || "").toLowerCase() !== (editing.value.color || "").toLowerCase())
+    payload.color = editForm.value.color;
   if (!Object.keys(payload).length) {
     editing.value = null;
     return;
@@ -153,6 +157,7 @@ async function remove(u) {
             <td class="muted">{{ u.id }}</td>
             <td>{{ u.username }}</td>
             <td>
+              <span class="swatch" :style="{ background: u.color || '#7c8cff' }"></span>
               {{ u.nickname }}
               <span class="tag" v-if="u.id === store.user?.id" style="margin-left: 6px">我</span>
             </td>
@@ -262,6 +267,17 @@ async function remove(u) {
           </select>
         </label>
         <label class="field">
+          <span>归属颜色（流水与统计饼图按此区分）</span>
+          <div class="picker">
+            <button
+              v-for="c in USER_COLORS" :key="c"
+              class="pcolor" :class="{ on: (editForm.color||'').toLowerCase() === c.toLowerCase() }"
+              :style="{ background: c }" @click="editForm.color = c"
+            ></button>
+            <input class="input color-input" type="color" v-model="editForm.color" />
+          </div>
+        </label>
+        <label class="field">
           <span>重置密码（留空则不修改）</span>
           <input class="input" v-model="editForm.password" placeholder="至少 6 位" />
         </label>
@@ -278,4 +294,9 @@ async function remove(u) {
 @media (max-width: 720px) {
   .hide-mobile { display: none; }
 }
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; vertical-align: middle; border: 1px solid var(--border); }
+.picker { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pcolor { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
+.pcolor.on { border-color: var(--text); }
+.color-input { width: 40px; height: 30px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: none; cursor: pointer; }
 </style>

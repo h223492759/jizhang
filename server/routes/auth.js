@@ -33,7 +33,7 @@ r.post(
     const u = createUserWithBook({ username, password, nickname, role: "user" });
     res.json({
       token: sign(u),
-      user: { id: u.id, username: u.username, nickname: u.nickname, role: "user" },
+      user: { id: u.id, username: u.username, nickname: u.nickname, role: "user", color: u.color },
     });
   })
 );
@@ -47,7 +47,7 @@ r.post(
       return res.status(400).json({ error: "用户名或密码错误" });
     res.json({
       token: sign(user),
-      user: { id: user.id, username: user.username, nickname: user.nickname, role: user.role },
+      user: { id: user.id, username: user.username, nickname: user.nickname, role: user.role, color: user.color },
     });
   })
 );
@@ -94,7 +94,7 @@ r.put(
     }
 
     const user = db
-      .prepare("SELECT id, username, nickname, role FROM users WHERE id=?")
+      .prepare("SELECT id, username, nickname, role, color FROM users WHERE id=?")
       .get(req.user.id);
     res.json({ user });
   })

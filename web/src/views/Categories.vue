@@ -21,6 +21,32 @@ const list = computed(() => store.categories.filter((c) => c.type === tab.value)
 async function reload() { await store.fetchCategories(); }
 onMounted(reload);
 
+// 调序：上移 / 下移（仅在本类型内）
+async function move(cat, dir) {
+  const ordered = store.categories
+    .filter((c) => c.type === tab.value)
+    .slice()
+    .sort((a, b) => a.sort - b.sort || a.id - b.id);
+  const i = ordered.findIndex((c) => c.id === cat.id);
+  const j = i + dir;
+  if (j < 0 || j >= ordered.length) return;
+  const ids = ordered.map((c) => c.id);
+  [ids[i], ids[j]] = [ids[j], ids[i]];
+  try {
+    await api.post("/categories/reorder", { ids });
+    await store.fetchCategories();
+  } catch (e) { toast(e.message); }
+}
+
+// 图标去重：已被其他分类使用的图标置灰，避免重复
+const usedIcons = computed(
+  () => new Set(store.categories.filter((c) => c.id !== form.value.id).map((c) => c.icon))
+);
+function pickIcon(i) {
+  if (usedIcons.value.has(i) && i !== form.value.icon) return; // 已占用则不可选
+  form.value.icon = i;
+}
+
 function add() {
   form.value = { id: null, name: "", type: tab.value, icon: "💰", color: "#6366f1" };
   showDialog.value = true;
@@ -66,7 +92,11 @@ async function del(c) {
       <div v-for="c in list" :key="c.id" class="card cat" @click="edit(c)">
         <div class="cicon" :style="{ background: c.color + '22', color: c.color }">{{ c.icon }}</div>
         <div class="cname">{{ c.name }}</div>
-        <button class="del" @click.stop="del(c)">×</button>
+        <div class="cat-actions">
+          <button class="mini" @click.stop="move(c, -1)" title="上移">↑</button>
+          <button class="mini" @click.stop="move(c, 1)" title="下移">↓</button>
+          <button class="del" @click.stop="del(c)">×</button>
+        </div>
       </div>
     </div>
 
@@ -74,9 +104,9 @@ async function del(c) {
       <div class="modal">
         <h3 class="modal-title">{{ form.id ? "编辑分类" : "新增" + (tab==='expense'?'支出':'收入') + "分类" }}</h3>
         <label class="field"><span>名称</span><input class="input" v-model.trim="form.name" placeholder="分类名称" /></label>
-        <label class="field"><span>图标</span>
+        <label class="field"><span>图标（灰色为其他分类已用，避免重复）</span>
           <div class="picker">
-            <button v-for="i in ICONS" :key="i" :class="['picon',{on:form.icon===i}]" @click="form.icon=i">{{ i }}</button>
+            <button v-for="i in ICONS" :key="i" :class="['picon',{on:form.icon===i, used: usedIcons.has(i) && i!==form.icon}]" @click="pickIcon(i)">{{ i }}</button>
           </div>
         </label>
         <label class="field"><span>颜色</span>
@@ -106,11 +136,14 @@ async function del(c) {
 .cicon { width: 46px; height: 46px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
 .cicon.sm { width: 30px; height: 30px; font-size: 17px; display: inline-flex; vertical-align: middle; }
 .cname { font-size: 13px; }
-.del { position: absolute; top: 6px; right: 8px; border: none; background: transparent; color: var(--text-2); cursor: pointer; font-size: 16px; opacity: 0; }
-.cat:hover .del { opacity: 1; }
+.cat-actions { position: absolute; top: 6px; right: 8px; display: flex; gap: 2px; }
+.del { border: none; background: transparent; color: var(--text-2); cursor: pointer; font-size: 16px; line-height: 1; opacity: 0; }
+.mini { border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); cursor: pointer; font-size: 11px; width: 18px; height: 18px; border-radius: 5px; line-height: 1; opacity: 0; }
+.cat:hover .del, .cat:hover .mini { opacity: 1; }
 .picker { display: flex; flex-wrap: wrap; gap: 6px; max-height: 180px; overflow-y: auto; padding-right: 4px; }
 .picon { width: 38px; height: 38px; border: 1px solid var(--border); background: var(--surface-2); border-radius: 9px; font-size: 19px; cursor: pointer; }
 .picon.on { border-color: var(--primary); background: var(--primary-soft); }
+.picon.used { opacity: .4; filter: grayscale(1); cursor: not-allowed; }
 .pcolor { width: 30px; height: 30px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
 .pcolor.on { border-color: var(--text); }
 .preview { margin: 6px 0 14px; font-size: 14px; color: var(--text-2); }

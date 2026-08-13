@@ -2,11 +2,11 @@ import jwt from "jsonwebtoken";
 import { db } from "./db.js";
 
 export const JWT_SECRET =
-  process.env.JWT_SECRET || "cashbook-nas-please-change-me";
+  process.env.JWT_SECRET || "jizhang-nas-please-change-me";
 
 export function sign(user) {
   return jwt.sign(
-    { id: user.id, username: user.username, role: user.role },
+    { id: user.id, username: user.username, role: user.role, color: user.color },
     JWT_SECRET,
     { expiresIn: "30d" }
   );
@@ -20,7 +20,7 @@ export function auth(req, res, next) {
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     const user = db
-      .prepare("SELECT id, username, nickname, role FROM users WHERE id=?")
+      .prepare("SELECT id, username, nickname, role, color FROM users WHERE id=?")
       .get(payload.id);
     if (!user) return res.status(401).json({ error: "用户不存在" });
     req.user = user;

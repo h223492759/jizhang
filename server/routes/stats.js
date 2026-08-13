@@ -18,7 +18,7 @@ function range(req) {
   return { where: "WHERE " + clause.join(" AND "), p };
 }
 
-// 概览：收入、支出、结余、笔数
+// 概览：收入、支出、结余、笔数（含按归属人拆分，共享账本用）
 r.get(
   "/overview",
   requireBook,
@@ -33,7 +33,15 @@ r.get(
          FROM flows ${where}`
       )
       .get(p);
-    res.json({ ...s, balance: s.income - s.expense });
+    // 按归属人（昵称）拆分的笔数，供「我 / 其他成员」展示
+    const byUser = db
+      .prepare(
+        `SELECT CASE WHEN ${ATTR_EXPR}='' OR ${ATTR_EXPR} IS NULL THEN '未标注' ELSE ${ATTR_EXPR} END AS name,
+                COUNT(*) AS count
+         FROM flows ${where} GROUP BY name ORDER BY count DESC`
+      )
+      .all(p);
+    res.json({ ...s, balance: s.income - s.expense, byUser });
   })
 );
 
@@ -80,12 +88,15 @@ r.get(
   wrap((req, res) => {
     const { where, p } = range(req);
     p.type = req.query.type === "income" ? "income" : "expense";
-    // 归属人以「用户表当前昵称」为准，改昵称后统计口径自动同步
+    // 归属人以「用户表当前昵称」为准，改昵称后统计口径自动同步；
+    // 顺带取该用户的颜色，饼图按颜色区分
     const rows = db
       .prepare(
         `SELECT CASE WHEN ${ATTR_EXPR}='' OR ${ATTR_EXPR} IS NULL THEN '未标注' ELSE ${ATTR_EXPR} END AS name,
-                SUM(amount) AS value
-         FROM flows ${where} AND type=@type
+                SUM(flows.amount) AS value,
+                MAX(u.color) AS color
+         FROM flows LEFT JOIN users u ON u.id = flows.attribution_uid
+         ${where} AND flows.type=@type
          GROUP BY name ORDER BY value DESC`
       )
       .all(p);

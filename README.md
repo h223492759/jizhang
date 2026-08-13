@@ -1,6 +1,6 @@
-# Cashbook NAS · 自建记账本
+# Jizhang NAS · 自建记账本
 
-使用了原来的cashbook根据自己记账需要修改，原地址：https://github.com/dingdangdog/cashbook
+基于开源项目 dingdangdog/cashbook 按需修改而来，本地已重命名为 jizhang，原项目地址：https://github.com/dingdangdog/cashbook
 
 单容器 + SQLite 的个人/家庭记账应用，专为**飞牛 NAS（fnOS）**部署设计。
 一个 `docker compose up` 就跑起来，不需要额外的数据库容器。
@@ -42,7 +42,7 @@
 
 镜像由 GitHub Actions 自动构建并发布到 GitHub 容器仓库 **GHCR**：
 `ghcr.io/h223492759/jizhang:latest`（多架构 amd64 / arm64，已设为公开）。
-你在飞牛上只要拉这个现成镜像跑起来，**不需要在 NAS 上装依赖、编译 SQLite**，比原版 cashbook 还简单（单容器，连数据库容器都不要）。
+你在飞牛上只要拉这个现成镜像跑起来，**不需要在 NAS 上装依赖、编译 SQLite**，比原项目还简单（单容器，连数据库容器都不要）。
 
 ### 第 1 步：配置镜像源（关键，否则拉不下来）
 
@@ -105,7 +105,7 @@ http://你的NAS内网IP:9600
 ## 二、常用运维命令
 
 ```bash
-cd /vol1/1000/docker/cashbook-nas
+cd /vol1/1000/docker/jizhang-nas
 
 docker compose logs -f          # 看实时日志
 docker compose restart          # 重启
@@ -123,14 +123,14 @@ docker compose ps               # 查看状态（healthy 表示健康检查通�
 所有数据只有一个 SQLite 文件，位置在宿主机：
 
 ```
-cashbook-nas/data/cashbook.db
+jizhang-nas/data/jizhang.db
 ```
 
 **备份**：停容器后直接复制整个 `data` 目录即可（含 `.db-wal`、`.db-shm`）。
 
 ```bash
 docker compose stop
-cp -r data ~/cashbook-backup-$(date +%Y%m%d)
+cp -r data ~/jizhang-backup-$(date +%Y%m%d)
 docker compose start
 ```
 
@@ -264,7 +264,7 @@ npm run dev          # http://localhost:5173，已配置代理到后端
 方式二（纯本地）：保留 `Dockerfile`，在目录内 `docker compose up -d --build`；此时需要 NAS 能拉到 `node:22-bookworm-slim` 基础镜像（走镜像源），且编译 SQLite 需要一点时间和内存。
 
 **Q：忘记管理员密码？**
-停容器 → 删掉 `data/cashbook.db` 会连数据一起没（慎用）。更稳妥的做法是在 `.env` 里改 `ADMIN_USERNAME` 为一个新名字重启，会创建一个新管理员账号，登录后再处理旧账号。
+停容器 → 删掉 `data/jizhang.db` 会连数据一起没（慎用）。更稳妥的做法是在 `.env` 里改 `ADMIN_USERNAME` 为一个新名字重启，会创建一个新管理员账号，登录后再处理旧账号。
 
 **Q：想让外网访问？**
 用飞牛自带的内网穿透 / 反向代理，把 `9600` 端口映射出去，并**务必**先把 `ALLOW_REGISTER` 改成 `false`、密码设强一点。
@@ -274,7 +274,7 @@ npm run dev          # http://localhost:5173，已配置代理到后端
 ## 目录结构
 
 ```
-cashbook-nas/
+jizhang-nas/
 ├── Dockerfile              # 多阶段构建：前端打包 → 后端依赖 → 精简运行镜像
 ├── docker-compose.yml      # 飞牛一键部署
 ├── .env.example            # 环境变量模板

@@ -133,8 +133,17 @@ function presetByName(type, name) {
   return sections[type].presets.find((p) => p.name === name);
 }
 function onChipClick(type, it) {
-  if (it.source === "preset") edit(type, presetByName(type, it.name));
-  else pin(type, it);
+  if (it.source === "preset") unpin(type, it); // 再次点击取消收藏
+  else pin(type, it); // 高频/最近 → 收藏
+}
+async function unpin(type, it) {
+  const p = presetByName(type, it.name);
+  if (!p) return;
+  try {
+    await api.delete(`/presets/${p.id}`);
+    toast("已取消收藏");
+    await load();
+  } catch (e) { toast(e.message); }
 }
 function presetTip(it) {
   const parts = [];
@@ -168,6 +177,7 @@ async function pin(type, item) {
       <p class="muted" style="font-size: 13px; margin: 0 0 8px; line-height: 1.7">
         在这里预设常用的名称，<b>记一笔时会按「支出 / 收入」分别显示成可点击的标签</b>，点一下就填好名称，还能自动带出分类、支付方式和常用金额。<br />
         常用名称会<b>按「分类」再分组</b>——「餐饮」里的常用名（如午饭、奶茶）和「日用」里的（如纸巾、洗衣液）是分开统计的，互不影响。<br />
+        <b>点击即可收藏（★）</b>，再次点击已收藏的名称则<b>取消收藏</b>。<br />
         下方的「高频」和「最近」由系统根据你的记账习惯自动统计，无需维护，越用越准。
       </p>
     </div>

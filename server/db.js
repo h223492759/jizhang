@@ -7,7 +7,16 @@ import bcrypt from "bcryptjs";
 const DATA_DIR = process.env.DATA_DIR || path.resolve(process.cwd(), "data");
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-const dbFile = path.join(DATA_DIR, "cashbook.db");
+const dbFile = path.join(DATA_DIR, "jizhang.db");
+// 兼容旧版：若仍存在 cashbook.db（含 WAL/SHM），启动时自动改名为 jizhang.db，保证历史数据不丢
+const legacyDb = path.join(DATA_DIR, "cashbook.db");
+if (fs.existsSync(legacyDb) && !fs.existsSync(dbFile)) {
+  for (const suf of ["", "-wal", "-shm"]) {
+    const from = legacyDb + suf;
+    const to = dbFile + suf;
+    if (fs.existsSync(from) && !fs.existsSync(to)) fs.renameSync(from, to);
+  }
+}
 export const db = new Database(dbFile);
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
@@ -122,51 +131,74 @@ db.exec(
   "CREATE INDEX IF NOT EXISTS idx_flows_attr_uid ON flows(book_id, attribution_uid)"
 );
 
-// ---------------- 默认分类 ----------------
-export const DEFAULT_CATEGORIES = [
-  // ---------- 支出 ----------
-  { name: "餐饮", type: "expense", icon: "🍜", color: "#ff6b6b" },
-  { name: "购物", type: "expense", icon: "🛍️", color: "#ff922b" },
-  { name: "交通", type: "expense", icon: "🚌", color: "#4dabf7" },
-  { name: "居住", type: "expense", icon: "🏠", color: "#845ef7" },
-  { name: "娱乐", type: "expense", icon: "🎮", color: "#f06595" },
-  { name: "医疗", type: "expense", icon: "💊", color: "#20c997" },
-  { name: "学习", type: "expense", icon: "📚", color: "#5c7cfa" },
-  { name: "通讯", type: "expense", icon: "📱", color: "#22b8cf" },
-  { name: "人情", type: "expense", icon: "🎁", color: "#fa5252" },
-  { name: "其他", type: "expense", icon: "💸", color: "#868e96" },
-  // 以下为截图中的分类（新增）
-  { name: "水果", type: "expense", icon: "🍎", color: "#ff6b6b" },
-  { name: "孩子", type: "expense", icon: "👶", color: "#f06595" },
-  { name: "零食", type: "expense", icon: "🍪", color: "#ff922b" },
-  { name: "运动", type: "expense", icon: "🏀", color: "#4dabf7" },
-  { name: "服饰", type: "expense", icon: "👕", color: "#e64980" },
-  { name: "美容", type: "expense", icon: "💄", color: "#f783ac" },
-  { name: "长辈", type: "expense", icon: "👴", color: "#868e96" },
-  { name: "社交", type: "expense", icon: "🤝", color: "#20c997" },
-  { name: "旅行", type: "expense", icon: "✈️", color: "#15aabf" },
-  { name: "烟酒", type: "expense", icon: "🍺", color: "#fab005" },
-  { name: "数码", type: "expense", icon: "💻", color: "#1c7ed6" },
-  { name: "居家", type: "expense", icon: "🛋️", color: "#845ef7" },
-  { name: "宠物", type: "expense", icon: "🐱", color: "#f783ac" },
-  { name: "礼金", type: "expense", icon: "🧧", color: "#e03131" },
-  { name: "备婚", type: "expense", icon: "💒", color: "#f06595" },
-  { name: "礼物", type: "expense", icon: "💝", color: "#fa5252" },
-  { name: "办公", type: "expense", icon: "📎", color: "#495057" },
-  { name: "亲友", type: "expense", icon: "👫", color: "#12b886" },
-  { name: "彩票", type: "expense", icon: "🎰", color: "#ae3ec9" },
-  { name: "保险", type: "expense", icon: "🛡️", color: "#4263eb" },
-  { name: "汽车", type: "expense", icon: "🚗", color: "#339af0" },
-  { name: "快递", type: "expense", icon: "📦", color: "#f59f00" },
-  { name: "捐赠", type: "expense", icon: "🪙", color: "#0ca678" },
-  // ---------- 收入 ----------
-  { name: "工资", type: "income", icon: "💼", color: "#37b24d" },
-  { name: "奖金", type: "income", icon: "🏆", color: "#f59f00" },
-  { name: "理财", type: "income", icon: "📈", color: "#1c7ed6" },
-  { name: "红包", type: "income", icon: "🧧", color: "#e03131" },
-  { name: "其他收入", type: "income", icon: "💰", color: "#0ca678" },
-  { name: "兼职", type: "income", icon: "💼", color: "#2f9e44" },
+// 用户颜色：流水归属与统计饼图按此区分
+addColumnIfMissing("users", "color", "color TEXT NOT NULL DEFAULT '#7c8cff'");
+
+// 预算金额支持算式（如 "1000+200"），保存时存计算结果，原始算式留作备注
+addColumnIfMissing("budgets", "expression", "expression TEXT NOT NULL DEFAULT ''");
+
+// 给用户分配一个稳定的颜色（按用户名哈希，避免每次刷新都变）
+const USER_PALETTE = ["#6366f1","#ef4444","#f59e0b","#10b981","#3b82f6","#ec4899","#8b5cf6","#14b8a6","#f97316","#0ea5e9","#a855f7","#22c55e"];
+export function pickColor(seed) {
+  const s = String(seed || "");
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return USER_PALETTE[h % USER_PALETTE.length];
+}
+
+// ---------------- 分类固定顺序 ----------------
+// 与用户确认的分类列表完全一致（先支出后收入），新增 / 排序 / 归一化都以这里为准
+const CAT_META = {
+  餐饮: { icon: "🍜", color: "#ff6b6b" },
+  购物: { icon: "🛍️", color: "#ff922b" },
+  日用: { icon: "🧴", color: "#74c0fc" },
+  交通: { icon: "🚌", color: "#4dabf7" },
+  水果: { icon: "🍎", color: "#ff6b6b" },
+  孩子: { icon: "👶", color: "#f06595" },
+  零食: { icon: "🍪", color: "#ff922b" },
+  运动: { icon: "🏀", color: "#4dabf7" },
+  娱乐: { icon: "🎮", color: "#f06595" },
+  通讯: { icon: "📱", color: "#22b8cf" },
+  服饰: { icon: "👕", color: "#e64980" },
+  美容: { icon: "💄", color: "#f783ac" },
+  住房: { icon: "🏠", color: "#845ef7" },
+  长辈: { icon: "👴", color: "#868e96" },
+  社交: { icon: "🤝", color: "#20c997" },
+  旅行: { icon: "✈️", color: "#15aabf" },
+  烟酒: { icon: "🍺", color: "#fab005" },
+  数码: { icon: "💻", color: "#1c7ed6" },
+  医疗: { icon: "💊", color: "#20c997" },
+  居家: { icon: "🛋️", color: "#845ef7" },
+  书籍: { icon: "📚", color: "#5c7cfa" },
+  学习: { icon: "📖", color: "#5c7cfa" },
+  宠物: { icon: "🐱", color: "#f783ac" },
+  礼金: { icon: "🧧", color: "#e03131" },
+  备婚: { icon: "💒", color: "#f06595" },
+  礼物: { icon: "💝", color: "#fa5252" },
+  办公: { icon: "📎", color: "#495057" },
+  亲友: { icon: "👫", color: "#12b886" },
+  彩票: { icon: "🎰", color: "#ae3ec9" },
+  保险: { icon: "🛡️", color: "#4263eb" },
+  人情: { icon: "🤝", color: "#fa5252" },
+  汽车: { icon: "🚗", color: "#339af0" },
+  快递: { icon: "📦", color: "#f59f00" },
+  捐赠: { icon: "🪙", color: "#0ca678" },
+  工资: { icon: "💼", color: "#37b24d" },
+  兼职: { icon: "💼", color: "#2f9e44" },
+  理财: { icon: "📈", color: "#1c7ed6" },
+  其它: { icon: "💰", color: "#0ca678" },
+  其他: { icon: "💸", color: "#868e96" },
+};
+// 用户确认的分类顺序：支出 34 项（含末尾「其他」兜底），收入 5 项
+const EXPENSE_ORDER = ["餐饮","购物","日用","交通","水果","孩子","零食","运动","娱乐","通讯","服饰","美容","住房","长辈","社交","旅行","烟酒","数码","医疗","居家","书籍","学习","宠物","礼金","备婚","礼物","办公","亲友","彩票","保险","人情","汽车","快递","捐赠","其他"];
+const INCOME_ORDER = ["工资","兼职","理财","礼金","其它"];
+const metaOf = (name) => CAT_META[name] || { icon: "💰", color: "#7c8cff" };
+export const CANONICAL_CATEGORIES = [
+  ...EXPENSE_ORDER.map((n) => ({ name: n, type: "expense", ...metaOf(n) })),
+  ...INCOME_ORDER.map((n) => ({ name: n, type: "income", ...metaOf(n) })),
 ];
+// 兼容旧引用（播种 / 新建账本都以 CANONICAL_CATEGORIES 为准）
+export const DEFAULT_CATEGORIES = CANONICAL_CATEGORIES;
 
 // 幂等写入：已存在的（同名同类型）跳过，可安全重复调用，
 // 既能给新账本播种，也能给老账本补充缺失的默认分类
@@ -196,6 +228,76 @@ export function ensureDefaultCategoriesForAllBooks() {
   for (const b of books) seedCategories(b.id);
 }
 
+// 把已有账本的分类整理成用户确认的顺序：补齐缺失、重排顺序、归一化命名。
+// - 居住 → 住房（同步历史流水分类名）
+// - 其他收入 → 其它
+// - 删除不在用户列表中的旧收入分类（奖金 / 红包，仅删分类行，历史流水保留原分类名）
+// 幂等，可每次启动安全调用。
+export function applyCanonicalCategoryOrder() {
+  const books = db.prepare("SELECT id FROM books").all();
+  const setSort = db.prepare("UPDATE categories SET sort=? WHERE id=?");
+  const ins = db.prepare(
+    "INSERT INTO categories (book_id,name,type,icon,color,sort) VALUES (?,?,?,?,?,?)"
+  );
+  const getMax = db.prepare(
+    "SELECT COALESCE(MAX(sort),0) AS m FROM categories WHERE book_id=? AND type=?"
+  );
+  const del = db.prepare(
+    "DELETE FROM categories WHERE book_id=? AND name=? AND type=?"
+  );
+  const renameFlows = db.prepare(
+    "UPDATE flows SET category=? WHERE book_id=? AND category=? AND type=?"
+  );
+  const exists = (bid, name, type) =>
+    db.prepare("SELECT 1 FROM categories WHERE book_id=? AND name=? AND type=?").get(bid, name, type);
+
+  const tx = db.transaction((bid) => {
+    // 1) 命名归一化：旧名 → 新名。
+    //    若新名已在 canonical 中存在（新建账本已自带），则把旧分类下的流水并入新名后删除旧分类，避免重名。
+    const normalizeRename = (oldName, oldType, newName) => {
+      if (!exists(bid, oldName, oldType)) return;
+      renameFlows.run(newName, bid, oldName, oldType);
+      del.run(bid, oldName, oldType);
+    };
+    normalizeRename("居住", "expense", "住房");
+    normalizeRename("其他收入", "income", "其它");
+    // 2) 删除不在用户列表中的旧分类（奖金/红包）：流水归入兜底分类后删除分类行
+    for (const ob of ["奖金", "红包"]) {
+      if (exists(bid, ob, "income")) {
+        renameFlows.run("其它", bid, ob, "income");
+        del.run(bid, ob, "income");
+      }
+      if (exists(bid, ob, "expense")) {
+        renameFlows.run("其他", bid, ob, "expense");
+        del.run(bid, ob, "expense");
+      }
+    }
+
+    // 3) 重排：canonical 依次占 1..N，其余（用户自定义等）追加在后面，避免序号冲突
+    const rows = db
+      .prepare("SELECT id,name,type FROM categories WHERE book_id=?")
+      .all(bid);
+    const canon = new Set(CANONICAL_CATEGORIES.map((c) => `${c.type}:${c.name}`));
+    let ex = 1,
+      inc = 1;
+    for (const c of CANONICAL_CATEGORIES) {
+      const sort = c.type === "expense" ? ex++ : inc++;
+      const row = rows.find((r) => r.name === c.name && r.type === c.type);
+      if (row) setSort.run(sort, row.id);
+      else ins.run(bid, c.name, c.type, c.icon, c.color, sort);
+    }
+    let exTail = 9000,
+      incTail = 9000;
+    for (const r of rows) {
+      if (!canon.has(`${r.type}:${r.name}`)) {
+        setSort.run(r.type === "expense" ? exTail++ : incTail++, r.id);
+      }
+    }
+  });
+  for (const b of books) tx(b.id);
+  console.log(`[init] 已按用户确认顺序整理 ${books.length} 个账本的分类`);
+}
+
 // ---------------- 全局设置（KV） ----------------
 // 用于持久化可在界面里修改的配置，例如 AI 记账（baseUrl/apiKey/模型等）。
 // 环境变量仍作为兜底，DB 里的值优先。
@@ -221,12 +323,13 @@ export function getAllSettings() {
 export function createUserWithBook({ username, password, nickname, role = "user" }) {
   const nick = (nickname || "").trim() || username;
   const hash = bcrypt.hashSync(password, 10);
+  const color = pickColor(username);
   const tx = db.transaction(() => {
     const info = db
       .prepare(
-        "INSERT INTO users (username, password, nickname, role) VALUES (?,?,?,?)"
+        "INSERT INTO users (username, password, nickname, role, color) VALUES (?,?,?,?,?)"
       )
-      .run(username, hash, nick, role === "admin" ? "admin" : "user");
+      .run(username, hash, nick, role === "admin" ? "admin" : "user", color);
     const uid = Number(info.lastInsertRowid);
     const book = db
       .prepare("INSERT INTO books (name, owner_id) VALUES (?,?)")
@@ -250,9 +353,9 @@ export function ensureAdmin() {
   const hash = bcrypt.hashSync(password, 10);
   const info = db
     .prepare(
-      "INSERT INTO users (username, password, nickname, role) VALUES (?,?,?,'admin')"
+      "INSERT INTO users (username, password, nickname, role, color) VALUES (?,?,?,'admin',?)"
     )
-    .run(username, hash, "管理员");
+    .run(username, hash, "管理员", pickColor(username));
   const uid = info.lastInsertRowid;
   const book = db
     .prepare("INSERT INTO books (name, owner_id) VALUES (?,?)")
