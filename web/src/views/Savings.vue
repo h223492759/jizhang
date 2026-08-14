@@ -208,7 +208,7 @@ const chartOpt = computed(() => {
     legend: { data: target > 0 ? ["净资产", "目标"] : ["净资产"], top: 0 },
     grid: { left: 68, right: 20, top: 34, bottom: 28 },
     xAxis: { type: "category", data: ms.map((m) => m.month.slice(2)) },
-    yAxis: { type: "value" },
+    yAxis: { type: "value", min: yAxisMin.value },
     series: [
       {
         name: "净资产",
@@ -234,6 +234,48 @@ const target = computed(() => Number(data.value.goal.target) || 0);
 const pctClamped = computed(() => Math.max(0, Math.min(100, cur.value.percent)));
 // 历史表倒序展示（最近的月在上面）
 const monthsDesc = computed(() => [...(data.value.months || [])].reverse());
+
+// 历史月柱状图 Y 轴下限：留空=自动取整（向下取好看的步长，使变化更聚焦）；填「万」数则覆盖
+const yMinWan = ref("");
+const yAxisMin = computed(() => {
+  const ms = data.value.months || [];
+  if (!ms.length) return undefined;
+  if (yMinWan.value !== "" && isFinite(Number(yMinWan.value))) {
+    return Number(yMinWan.value) * 10000;
+  }
+  const vals = ms.map((m) => Number(m.net));
+  const minV = Math.min(...vals);
+  const maxV = Math.max(...vals);
+  const span = maxV - minV || 1;
+  let step = 50000;
+  if (span <= 100000) step = 10000;
+  else if (span <= 500000) step = 50000;
+  else step = 100000;
+  return Math.floor(minV / step) * step;
+});
+
+// 历史记录行内编辑（修改某月净资产快照的资产/负债）
+const editingYmd = ref("");
+const editHist = ref({ asset: "", liability: "" });
+function startEditHistory(m) {
+  editingYmd.value = m.ymd;
+  editHist.value = { asset: String(m.asset), liability: String(m.liability || 0) };
+}
+function cancelEditHistory() {
+  editingYmd.value = "";
+}
+async function saveEditHistory(m) {
+  const asset = evalExpr(editHist.value.asset || "0");
+  const liability = evalExpr(editHist.value.liability || "0");
+  if (!isFinite(asset) || asset < 0) return toast("资产金额请填正数");
+  if (!isFinite(liability) || liability < 0) return toast("负债金额请填正数");
+  try {
+    await api.put(`/savings/history/${m.ymd}`, { asset, liability });
+    toast("已修改该月历史");
+    editingYmd.value = "";
+    load();
+  } catch (e) { toast(e.message); }
+}
 </script>
 
 <template>
@@ -303,13 +345,18 @@ const monthsDesc = computed(() => [...(data.value.months || [])].reverse());
 
     <!-- 历史月柱状图 -->
     <div class="card" style="margin-top:20px" v-if="data.months.length">
-      <div class="section-title">历史月净资产（每月只取该月最后一次更新）</div>
+      <div class="section-title row" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <span>历史月净资产（每月只取该月最后一次更新）</span>
+        <span class="muted small" style="display:inline-flex;align-items:center;gap:6px">
+          Y轴下限(万)：<input class="input" v-model="yMinWan" placeholder="自动" style="width:90px" />
+        </span>
+      </div>
       <EChart :option="chartOpt" height="340px" />
     </div>
 
     <!-- 历史月表格 -->
     <div class="card" style="margin-top:16px" v-if="data.months.length">
-      <div class="section-title">历史记录</div>
+      <div class="section-title">历史记录（点「改」可修正某月资产/负债）</div>
       <table class="tbl his-tbl">
         <thead>
           <tr>
@@ -327,15 +374,34 @@ const monthsDesc = computed(() => [...(data.value.months || [])].reverse());
           <tr v-for="m in monthsDesc" :key="m.ymd">
             <td class="c-m"><b>{{ m.month }}</b></td>
             <td class="c-d muted hide-mobile">{{ m.ymd }}</td>
-            <td class="num income">{{ fmt(m.asset) }}</td>
-            <td class="num expense">{{ m.liability ? fmt(m.liability) : '—' }}</td>
-            <td class="num"><b :class="m.net >= 0 ? 'income' : 'expense'">{{ fmt(m.net) }}</b></td>
+            <td class="num income" v-if="editingYmd !== m.ymd">{{ fmt(m.asset) }}</td>
+            <td class="num income" v-else><input class="input cell-input" v-model="editHist.asset" style="width:120px;text-align:right" /></td>
+            <td class="num expense" v-if="editingYmd !== m.ymd">{{ m.liability ? fmt(m.liability) : '—' }}</td>
+            <td class="num expense" v-else><input class="input cell-input" v-model="editHist.liability" style="width:120px;text-align:right" /></td>
+            <td class="num" v-if="editingYmd !== m.ymd">
+              <b :class="m.net >= 0 ? 'income' : 'expense'">{{ fmt(m.net) }}</b>
+            </td>
+            <td class="num" v-else>
+              <b :class="(evalExpr(editHist.asset||'0') - evalExpr(editHist.liability||'0')) >= 0 ? 'income' : 'expense'">
+                {{ fmt(evalExpr(editHist.asset||'0') - evalExpr(editHist.liability||'0')) }}
+              </b>
+            </td>
             <td class="num" v-if="target">
               <span v-if="target - m.net > 0" class="muted">差 {{ fmt(target - m.net) }}</span>
               <span v-else class="income">超 {{ fmt(m.net - target) }}</span>
             </td>
-            <td class="c-op muted hide-mobile">{{ m.op_user || '—' }}</td>
-            <td class="c-act"><button class="btn btn-sm btn-danger" @click="delHistory(m)">删</button></td>
+            <td class="c-op muted hide-mobile" v-if="editingYmd !== m.ymd">{{ m.op_user || '—' }}</td>
+            <td class="c-op muted hide-mobile" v-else>—</td>
+            <td class="c-act">
+              <template v-if="editingYmd === m.ymd">
+                <button class="btn btn-sm btn-primary" @click="saveEditHistory(m)">存</button>
+                <button class="btn btn-sm" @click="cancelEditHistory">取</button>
+              </template>
+              <template v-else>
+                <button class="btn btn-sm" @click="startEditHistory(m)">改</button>
+                <button class="btn btn-sm btn-danger" @click="delHistory(m)">删</button>
+              </template>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -532,7 +598,8 @@ const monthsDesc = computed(() => [...(data.value.months || [])].reverse());
 .his-tbl .c-m { width: 100px; white-space: nowrap; }
 .his-tbl .c-d { width: 110px; white-space: nowrap; }
 .his-tbl .c-op { width: 90px; }
-.his-tbl .c-act { width: 50px; text-align: right; }
+.his-tbl .c-act { width: 104px; text-align: right; white-space: nowrap; }
+.his-tbl .cell-input { height: 30px; padding: 2px 6px; font-size: 13px; }
 .his-tbl .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 /* 资金明细弹窗（仿分类钱包小钱包） */

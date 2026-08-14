@@ -67,21 +67,11 @@ function computeNet(bookId) {
 function rebuildHistory(bookId, user) {
   const items = getItems(bookId);
   const now = dayjs();
-  // 起始月：最早有生效日期的细则所在月，否则本月
-  let startYm = now.format("YYYY-MM");
-  for (const it of items) {
-    if (it.as_of && /^\d{4}-\d{2}-\d{2}$/.test(it.as_of)) {
-      const ym = it.as_of.slice(0, 7);
-      if (ym < startYm) startYm = ym;
-    }
-  }
-  const hasAsOf = items.some((it) => it.as_of && /^\d{4}-\d{2}-\d{2}$/.test(it.as_of));
-  // 清理早于「最早生效月」的自动快照（manual=0），避免历史图表/记录里出现生效日之前的旧数据
-  if (hasAsOf) {
-    db.prepare(
-      "DELETE FROM savings_history WHERE book_id=? AND substr(ymd,1,7) < ? AND manual=0"
-    ).run(bookId, startYm);
-  }
+  const startYm = dataStartYm(bookId);
+  // 始终清理早于「数据起点月」的自动快照（manual=0）：避免出现生效日/数据起点之前的无意义远古快照（如 2022-01）
+  db.prepare(
+    "DELETE FROM savings_history WHERE book_id=? AND substr(ymd,1,7) < ? AND manual=0"
+  ).run(bookId, startYm);
   const monthList = [];
   let cur = dayjs(startYm + "-01");
   while (!cur.isAfter(now, "month")) {
@@ -123,25 +113,30 @@ function rebuildHistory(bookId, user) {
   return { asset, liability, net };
 }
 
-// 最早生效日期所在月：所有细则 as_of 中最早的那个月（无 as_of 则返回 null）
-function earliestAsOfMonth(bookId) {
+// 数据起点月：历史图/历史的展示与重建下界。
+// 取「最早生效日期月」与「最早人工回填(manual=1)快照月」的较小者；若都为空则为本月。
+function dataStartYm(bookId) {
+  let ym = dayjs().format("YYYY-MM");
   const rows = db
     .prepare("SELECT as_of FROM savings_items WHERE book_id=? AND as_of<>''")
     .all(bookId);
-  let ym = null;
   for (const r of rows) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(r.as_of)) {
       const m = r.as_of.slice(0, 7);
-      if (ym === null || m < ym) ym = m;
+      if (m < ym) ym = m;
     }
   }
+  const man = db
+    .prepare("SELECT MIN(substr(ymd,1,7)) AS m FROM savings_history WHERE book_id=? AND manual=1")
+    .get(bookId);
+  if (man && man.m && man.m < ym) ym = man.m;
   return ym;
 }
 
 // 历史：每月取「该月最后更新日期」那一条（每个月只显示一次数据）
 // 过滤掉早于「最早生效日期」所在月的记录（图表与历史记录表共用，保证都不显示之前的数据）
 function monthlyHistory(bookId) {
-  const startYm = earliestAsOfMonth(bookId);
+  const startYm = dataStartYm(bookId);
   let sql = `SELECT h.ymd, substr(h.ymd,1,7) AS month, h.asset, h.liability, h.net,
               ${OP_EXPR("h")} AS op_user
        FROM savings_history h
@@ -334,6 +329,27 @@ r.delete(
       req.bookId,
       req.params.ymd
     );
+    res.json({ ok: true });
+  })
+);
+
+// 修改某个月的历史净资产快照（资产/负债，重算净资产，标记 manual=1 避免被重建覆盖）
+r.put(
+  "/history/:ymd",
+  requireBook,
+  wrap((req, res) => {
+    const ymd = normAsOf(req.params.ymd);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return res.status(400).json({ error: "日期格式不对" });
+    const asset = Number(req.body?.asset);
+    const liability = Number(req.body?.liability);
+    if (!(asset >= 0) || !(liability >= 0)) return res.status(400).json({ error: "金额需填正数" });
+    const exists = db
+      .prepare("SELECT 1 FROM savings_history WHERE book_id=? AND ymd=?")
+      .get(req.bookId, ymd);
+    if (!exists) return res.status(404).json({ error: "该月历史记录不存在" });
+    db.prepare(
+      `UPDATE savings_history SET asset=?, liability=?, net=?, manual=1, updated_at=datetime('now','localtime') WHERE book_id=? AND ymd=?`
+    ).run(asset, liability, asset - liability, req.bookId, ymd);
     res.json({ ok: true });
   })
 );
