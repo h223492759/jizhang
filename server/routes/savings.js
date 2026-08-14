@@ -228,6 +228,35 @@ r.post(
   })
 );
 
+// 获取某月的逐条明细基线（用于「修改某月历史」弹窗预填）
+// 返回该月最后更新日的 ymd，以及每条当时生效细则的金额（优先取该日逐条记录，缺失则回退当前金额）
+r.get(
+  "/items/history-month",
+  requireBook,
+  wrap((req, res) => {
+    const ym = String(req.query.ym || "").slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(ym)) return res.status(400).json({ error: "月份格式不对" });
+    const last = db
+      .prepare("SELECT MAX(ymd) AS mx FROM savings_history WHERE book_id=? AND substr(ymd,1,7)=?")
+      .get(req.bookId, ym);
+    const ymd = last?.mx || dayjs(ym + "-01").endOf("month").format("YYYY-MM-DD");
+    const histRows = db
+      .prepare("SELECT item_id, amount FROM savings_item_history WHERE book_id=? AND ymd=?")
+      .all(req.bookId, ymd);
+    const histMap = {};
+    for (const h of histRows) histMap[h.item_id] = h.amount;
+    const items = getItems(req.bookId)
+      .filter((it) => activeOn(it, ymd)) // 仅该月当时生效的细则
+      .map((it) => ({
+        id: it.id,
+        name: it.name,
+        sign: it.sign,
+        amount: histMap[it.id] != null ? String(histMap[it.id]) : String(it.amount),
+      }));
+    res.json({ ymd, items });
+  })
+);
+
 // 编辑资金细则（改名 / 改正负 / 改金额）
 r.put(
   "/items/:id",
@@ -302,6 +331,10 @@ r.post(
              asset=excluded.asset, liability=excluded.liability, net=excluded.net,
              user_id=excluded.user_id, op_user=excluded.op_user, updated_at=excluded.updated_at, manual=1`
         ).run(req.bookId, ymd, asset, liability, asset - liability, req.user?.id || 0, req.user?.nickname || "");
+        // 先清掉该月已有的逐条历史，避免多次「改」同一月时记录堆积（每月只留一份逐条记录）
+        db.prepare(
+          "DELETE FROM savings_item_history WHERE book_id=? AND substr(ymd,1,7)=?"
+        ).run(req.bookId, ym);
         // 每条生效细则各记一条历史（与「直接修改当前金额」一致，便于明细弹窗查看）
         for (const u of itemUpdates) {
           histStmt.run(u.id, req.bookId, ymd, u.amt, "批量更新·回填历史", req.user?.id || 0, req.user?.nickname || "");

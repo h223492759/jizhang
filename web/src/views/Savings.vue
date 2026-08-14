@@ -257,20 +257,37 @@ const yAxisMin = computed(() => {
   return Math.floor(minV / step) * step;
 });
 
-// 历史记录弹窗编辑（修改某月净资产快照的资产/负债）
+// 历史记录弹窗编辑（修改某月各细则金额，逻辑同「更新资产和负债」，但作用在该月快照上）
 const showHistEdit = ref(false);
-const histEdit = ref({ ymd: "", month: "", asset: "", liability: "" });
-function openHistEdit(m) {
-  histEdit.value = { ymd: m.ymd, month: m.month, asset: String(m.asset), liability: String(m.liability || 0) };
-  showHistEdit.value = true;
-}
-async function saveHistEdit() {
-  const asset = evalExpr(histEdit.value.asset || "0");
-  const liability = evalExpr(histEdit.value.liability || "0");
-  if (!isFinite(asset) || asset < 0) return toast("资产金额请填正数");
-  if (!isFinite(liability) || liability < 0) return toast("负债金额请填正数");
+const histEdit = ref({ ymd: "", month: "", form: [] });
+async function openHistEdit(m) {
   try {
-    await api.put(`/savings/history/${histEdit.value.ymd}`, { asset, liability });
+    const { data: d } = await api.get(`/savings/items/history-month?ym=${m.month}`);
+    histEdit.value = {
+      ymd: d.ymd,
+      month: m.month,
+      form: d.items.map((i) => ({ id: i.id, name: i.name, sign: i.sign, amount: String(i.amount) })),
+    };
+    showHistEdit.value = true;
+  } catch (e) { toast(e.message); }
+}
+// 弹窗内实时预览本次将得到的净资产
+const histPreview = computed(() => {
+  let asset = 0, liability = 0;
+  for (const it of histEdit.value.form) {
+    const v = evalExpr(it.amount || "0");
+    if (!isFinite(v)) continue;
+    if (it.sign < 0) liability += v; else asset += v;
+  }
+  return { asset, liability, net: asset - liability };
+});
+async function saveHistEdit() {
+  const items = histEdit.value.form
+    .map((i) => ({ id: i.id, amount: evalExpr(i.amount || "0") }))
+    .filter((i) => isFinite(i.amount) && i.amount >= 0);
+  if (!items.length) return toast("没有可保存的金额");
+  try {
+    await api.post("/savings/items/bulk", { items, ymd: histEdit.value.ymd });
     toast("已修改该月历史");
     showHistEdit.value = false;
     load();
@@ -386,7 +403,7 @@ async function saveHistEdit() {
 
     <!-- 历史月表格 -->
     <div class="card" style="margin-top:16px" v-if="data.months.length">
-      <div class="section-title">历史记录（点「改」可在弹窗中修正某月资产/负债）</div>
+      <div class="section-title">历史记录（点「改」可像「更新资产」一样逐条调整该月各明细）</div>
       <table class="tbl his-tbl">
         <thead>
           <tr>
@@ -591,31 +608,36 @@ async function saveHistEdit() {
       </div>
     </div>
 
-    <!-- 修改某月历史（资产/负债）弹窗 -->
+    <!-- 修改某月历史弹窗（逐条明细，逻辑同「更新资产和负债」，作用于该月快照） -->
     <div v-if="showHistEdit" class="modal-mask" @click.self="showHistEdit = false">
-      <div class="modal" style="max-width:460px">
+      <div class="modal" style="max-width:640px">
         <div class="modal-head">
-          <h3 class="modal-title" style="margin:0">修改 {{ histEdit.month }} 的历史净资产</h3>
+          <h3 class="modal-title" style="margin:0">修改 {{ histEdit.month }} 的历史</h3>
           <div class="row" style="gap:8px">
             <button class="btn" @click="showHistEdit = false">取消</button>
             <button class="btn btn-primary" @click="saveHistEdit">保存</button>
           </div>
         </div>
-        <label class="field">
-          <span>资产（该月总资产，填正数）</span>
-          <input class="input" v-model="histEdit.asset" placeholder="如 510000" />
-          <span class="muted small" v-if="isFinite(evalExpr(histEdit.asset))">= {{ fmt(evalExpr(histEdit.asset)) }}</span>
-        </label>
-        <label class="field">
-          <span>负债（该月总负债，填正数）</span>
-          <input class="input" v-model="histEdit.liability" placeholder="如 40000" />
-          <span class="muted small" v-if="isFinite(evalExpr(histEdit.liability))">= {{ fmt(evalExpr(histEdit.liability)) }}</span>
-        </label>
-        <div class="preview-box" style="margin-top:4px">
-          <div class="prev-row">
-            <span>净资产</span>
-            <b :class="(evalExpr(histEdit.asset||'0') - evalExpr(histEdit.liability||'0')) >= 0 ? 'income' : 'expense'">
-              {{ fmt(evalExpr(histEdit.asset||'0') - evalExpr(histEdit.liability||'0')) }}
+        <div class="muted small" style="margin-bottom:10px">
+          作用在该月（{{ histEdit.ymd }}）的快照上，已按该月当时生效的细则预填；保存后写入该月历史，不影响当前余额。
+        </div>
+        <div class="upd-list">
+          <div v-for="it in histEdit.form" :key="it.id" class="upd-row">
+            <span class="upd-name">
+              {{ it.name }}
+              <em :class="it.sign < 0 ? 'expense' : 'income'">{{ it.sign < 0 ? '负债' : '资产' }}</em>
+            </span>
+            <input class="input" v-model="it.amount" placeholder="0" />
+          </div>
+        </div>
+        <div class="preview-box">
+          <div class="prev-row"><span>资产合计</span><b class="income">{{ fmt(histPreview.asset) }}</b></div>
+          <div class="prev-row"><span>负债合计</span><b class="expense">{{ fmt(histPreview.liability) }}</b></div>
+          <div class="prev-row"><span>净资产</span><b :class="histPreview.net >= 0 ? 'income' : 'expense'">{{ fmt(histPreview.net) }}</b></div>
+          <div class="prev-row" v-if="target">
+            <span>距目标</span>
+            <b :class="target - histPreview.net > 0 ? '' : 'income'">
+              {{ target - histPreview.net > 0 ? '还差 ' + fmt(target - histPreview.net) : '已超 ' + fmt(histPreview.net - target) }}
             </b>
           </div>
         </div>
