@@ -47,12 +47,22 @@ function getItems(bookId) {
     .all(bookId);
 }
 
-// 当前资产 / 负债 / 净资产（按细则的正负号累加）
-function computeNet(bookId) {
+// 某细则在指定日期 dateStr(YYYY-MM-DD) 是否有效：
+// - as_of 非空且 > date → 尚未生效；as_of_end 非空且 date > as_of_end → 已失效
+const activeOn = (it, dateStr) => {
+  if (it.as_of && /^\d{4}-\d{2}-\d{2}$/.test(it.as_of) && it.as_of > dateStr) return false;
+  if (it.as_of_end && /^\d{4}-\d{2}-\d{2}$/.test(it.as_of_end) && dateStr > it.as_of_end) return false;
+  return true;
+};
+
+// 当前资产 / 负债 / 净资产（按细则的正负号累加；已失效/未生效的细则不计入）
+function computeNet(bookId, asOfDate) {
+  const dateStr = asOfDate || today();
   const items = getItems(bookId);
   let asset = 0,
     liability = 0;
   for (const it of items) {
+    if (!activeOn(it, dateStr)) continue;
     const v = Number(it.amount) || 0;
     if (Number(it.sign) < 0) liability += v;
     else asset += v;
@@ -99,9 +109,7 @@ function rebuildHistory(bookId, user) {
         liability = 0;
       for (const it of items) {
         const v = Number(it.amount) || 0;
-        if (it.as_of && /^\d{4}-\d{2}-\d{2}$/.test(it.as_of)) {
-          if (it.as_of > monthEnd.format("YYYY-MM-DD")) continue; // 该月尚未生效
-        }
+        if (!activeOn(it, monthEnd.format("YYYY-MM-DD"))) continue; // 该月已失效/未生效
         if (Number(it.sign) < 0) liability += v;
         else asset += v;
       }
@@ -160,13 +168,16 @@ r.get(
   requireBook,
   wrap((req, res) => {
     const goal = getGoal(req.bookId);
-    const items = getItems(req.bookId);
+    const allItems = getItems(req.bookId);
+    const items = allItems.filter((it) => activeOn(it, today())); // 当前有效（计入净资产）
+    const expiredItems = allItems.filter((it) => !activeOn(it, today())); // 已失效（不计入，仅作展示/可恢复）
     const cur = computeNet(req.bookId);
     const months = monthlyHistory(req.bookId);
     const percent = goal.target > 0 ? Math.round((cur.net / goal.target) * 100) : 0;
     res.json({
       goal,
       items,
+      expiredItems,
       current: { ...cur, percent, remaining: goal.target - cur.net },
       months,
     });
@@ -209,9 +220,9 @@ r.post(
       .get(req.bookId).m;
     const info = db
       .prepare(
-        `INSERT INTO savings_items (book_id,name,sign,amount,note,sort,as_of) VALUES (?,?,?,?,?,?,?)`
+        `INSERT INTO savings_items (book_id,name,sign,amount,note,sort,as_of,as_of_end) VALUES (?,?,?,?,?,?,?,?)`
       )
-      .run(req.bookId, name, sign, amount, (req.body?.note || "").toString().trim(), max + 1, normAsOf(req.body?.as_of));
+      .run(req.bookId, name, sign, amount, (req.body?.note || "").toString().trim(), max + 1, normAsOf(req.body?.as_of), normAsOf(req.body?.as_of_end));
     const snap = rebuildHistory(req.bookId, req.user);
     res.json({ id: Number(info.lastInsertRowid), ...snap });
   })
@@ -238,9 +249,10 @@ r.put(
     if (!(amount >= 0)) return res.status(400).json({ error: "金额请填正数，正负用「计入方式」选择" });
     const sign = req.body?.sign != null ? (Number(req.body.sign) < 0 ? -1 : 1) : cur.sign;
     const asOf = req.body?.as_of !== undefined ? normAsOf(req.body.as_of) : cur.as_of;
+    const asOfEnd = req.body?.as_of_end !== undefined ? normAsOf(req.body.as_of_end) : cur.as_of_end;
     db.prepare(
-      `UPDATE savings_items SET name=?, sign=?, amount=?, note=?, as_of=?, updated_at=datetime('now','localtime') WHERE id=?`
-    ).run(name, sign, amount, (req.body?.note ?? cur.note).toString().trim(), asOf, cur.id);
+      `UPDATE savings_items SET name=?, sign=?, amount=?, note=?, as_of=?, as_of_end=?, updated_at=datetime('now','localtime') WHERE id=?`
+    ).run(name, sign, amount, (req.body?.note ?? cur.note).toString().trim(), asOf, asOfEnd, cur.id);
     const snap = rebuildHistory(req.bookId, req.user);
     res.json({ ok: true, ...snap });
   })
@@ -268,6 +280,7 @@ r.post(
         if (!(amt >= 0)) continue;
         const dbItem = byId[Number(it.id)];
         if (!dbItem) continue;
+        if (!activeOn(dbItem, ymd)) continue; // 该日已失效/未生效
         if (Number(dbItem.sign) < 0) liability += amt;
         else asset += amt;
       }

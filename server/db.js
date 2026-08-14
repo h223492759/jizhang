@@ -237,6 +237,9 @@ addColumnIfMissing("recurring", "attribution", "attribution TEXT NOT NULL DEFAUL
 // 资金细则可带一个生效日期（用于回填历史资产），空=当前
 addColumnIfMissing("savings_items", "as_of", "as_of TEXT NOT NULL DEFAULT ''");
 
+// 资金细则可带一个失效日期，空=长期有效；更新资产日期晚于失效日则该细则不再计入、不显示
+addColumnIfMissing("savings_items", "as_of_end", "as_of_end TEXT NOT NULL DEFAULT ''");
+
 // 历史月净资产快照：manual=1 表示人工回填的历史快照，rebuildHistory 不再覆盖该月
 addColumnIfMissing("savings_history", "manual", "manual INTEGER NOT NULL DEFAULT 0");
 

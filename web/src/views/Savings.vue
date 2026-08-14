@@ -75,26 +75,29 @@ async function saveGoal() {
 // ---------------- 资金细则 ----------------
 const showItem = ref(false);
 const editingItem = ref(null);
-const itemForm = ref({ name: "", amount: "", sign: 1, note: "", as_of: "" });
+const itemForm = ref({ name: "", amount: "", sign: 1, note: "", as_of: "", as_of_end: "" });
 const asOfError = ref(false);
+const asOfEndError = ref(false);
 function openAddItem() {
   editingItem.value = null;
-  itemForm.value = { name: "", amount: "", sign: 1, note: "", as_of: "" }; // 默认为正
+  itemForm.value = { name: "", amount: "", sign: 1, note: "", as_of: "", as_of_end: "" }; // 默认为正
   asOfError.value = false;
+  asOfEndError.value = false;
   showItem.value = true;
 }
 function openEditItem(it) {
   editingItem.value = it;
-  itemForm.value = { name: it.name, amount: String(it.amount), sign: it.sign, note: it.note || "", as_of: it.as_of || "" };
+  itemForm.value = { name: it.name, amount: String(it.amount), sign: it.sign, note: it.note || "", as_of: it.as_of || "", as_of_end: it.as_of_end || "" };
   asOfError.value = false;
+  asOfEndError.value = false;
   showItem.value = true;
 }
 async function saveItem() {
   const amt = evalExpr(itemForm.value.amount || "0");
   if (!isFinite(amt) || amt < 0) return toast("金额请填正数，正负用「计入方式」选择");
   if (!itemForm.value.name.trim()) return toast("请填写名称");
-  if (asOfError.value) return toast("生效日期格式不对，请按 8 位（如 20260814）或 2026-08-14 输入");
-  const payload = { name: itemForm.value.name.trim(), amount: amt, sign: itemForm.value.sign, note: itemForm.value.note, as_of: itemForm.value.as_of };
+  if (asOfError.value || asOfEndError.value) return toast("生效/失效日期格式不对，请按 8 位（如 20260814）或 2026-08-14 输入");
+  const payload = { name: itemForm.value.name.trim(), amount: amt, sign: itemForm.value.sign, note: itemForm.value.note, as_of: itemForm.value.as_of, as_of_end: itemForm.value.as_of_end };
   try {
     if (editingItem.value) await api.put(`/savings/items/${editingItem.value.id}`, payload);
     else await api.post("/savings/items", payload);
@@ -331,7 +334,10 @@ async function saveEditHistory(m) {
         </div>
         <div class="muted small" v-if="it.note">{{ it.note }}</div>
         <div class="item-foot">
-          <span class="muted small">{{ it.as_of ? '生效 ' + it.as_of : '更新 ' + (it.updated_at || '').slice(0, 10) }}</span>
+          <span class="muted small">
+            {{ it.as_of ? '生效 ' + it.as_of : '更新 ' + (it.updated_at || '').slice(0, 10) }}
+            {{ it.as_of_end ? ' · 失效 ' + it.as_of_end : '' }}
+          </span>
           <span>
             <button class="btn btn-sm" @click.stop="openEditItem(it)">改</button>
             <button class="btn btn-sm btn-danger" @click.stop="delItem(it)">删</button>
@@ -340,6 +346,33 @@ async function saveEditHistory(m) {
       </div>
       <div v-if="!data.items.length" class="muted empty-tip">
         还没有资金细则。点「＋ 新增细则」，把现金、微信余额、信用卡账单等逐项加进来（默认计为正，信用卡这类选「负债」）。
+      </div>
+    </div>
+
+    <!-- 已失效的细则（不计入净资产，可改回有效） -->
+    <div v-if="data.expiredItems && data.expiredItems.length" style="margin-top:18px">
+      <div class="section-title muted" style="margin-bottom:10px">已失效的细则（不计入净资产，点「改」可延长或取消失效日期）</div>
+      <div class="grid item-grid">
+        <div v-for="it in data.expiredItems" :key="it.id" class="card item expired" :class="it.sign < 0 ? 'neg' : 'pos'" @click="openItemDetail(it)">
+          <div class="item-top">
+            <b>{{ it.name }}</b>
+            <span class="tag tag-expired">已失效</span>
+          </div>
+          <div class="item-amt" :class="it.sign < 0 ? 'expense' : ''">
+            {{ it.sign < 0 ? '−' : '' }}{{ fmt(it.amount) }}
+          </div>
+          <div class="muted small" v-if="it.note">{{ it.note }}</div>
+          <div class="item-foot">
+            <span class="muted small">
+              {{ it.as_of ? '生效 ' + it.as_of : '更新 ' + (it.updated_at || '').slice(0, 10) }}
+              {{ it.as_of_end ? ' · 失效 ' + it.as_of_end : '' }}
+            </span>
+            <span>
+              <button class="btn btn-sm" @click.stop="openEditItem(it)">改</button>
+              <button class="btn btn-sm btn-danger" @click.stop="delItem(it)">删</button>
+            </span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -465,6 +498,10 @@ async function saveEditHistory(m) {
           <span>生效日期（可选：填历史日期可回填该月资产，留空视为当前）</span>
           <DateInput v-model="itemForm.as_of" @error="asOfError = $event" />
         </label>
+        <label class="field">
+          <span>失效日期（可选：留空=长期有效；更新资产的日期晚于此日期时，该细则不再计入净资产、且不显示在主列表）</span>
+          <DateInput v-model="itemForm.as_of_end" @error="asOfEndError = $event" />
+        </label>
       </div>
     </div>
 
@@ -588,6 +625,8 @@ async function saveEditHistory(m) {
 .item { padding: 14px; }
 .item.neg { border-left: 3px solid var(--expense); }
 .item.pos { border-left: 3px solid var(--income); }
+.item.expired { opacity: 0.6; filter: grayscale(0.4); }
+.tag-expired { color: var(--text-2); border: 1px solid var(--border); padding: 1px 6px; border-radius: 6px; font-size: 11px; }
 .item-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .item-amt { font-size: 19px; font-weight: 700; margin: 8px 0 4px; }
 .item-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
