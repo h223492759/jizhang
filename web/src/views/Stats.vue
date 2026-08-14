@@ -320,7 +320,7 @@ export default { components: { EChart } };
 @media (max-width: 720px) { .cards { grid-template-columns: repeat(2,1fr); } .charts { grid-template-columns: 1fr; } .daily-card { grid-column: span 1; } }
 
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
-.modal { background: var(--surface); color: var(--text); width: min(1600px, 100%); max-height: 88vh; border-radius: 14px; display: flex; flex-direction: column; box-shadow: var(--shadow); overflow: hidden; }
+.modal { background: var(--surface); color: var(--text); width: min(1600px, 100%); max-width: min(1600px, 100%); max-height: 88vh; border-radius: 14px; display: flex; flex-direction: column; box-shadow: var(--shadow); overflow: hidden; }
 .modal-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--surface-2); flex-wrap: wrap; }
 .modal-head .muted { font-size: 13px; }
 .seg.sm { padding: 2px; }

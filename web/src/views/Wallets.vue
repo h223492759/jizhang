@@ -73,10 +73,10 @@ const hiddenWallets = computed(() => (data.value.wallets || []).filter((w) => Nu
 // ---------------- 新增 / 编辑钱包 ----------------
 const showWallet = ref(false);
 const editingWallet = ref(null);
-const walletForm = ref({ name: "", icon: "👛", target: "", note: "", link_from: "", link_category: "" });
+const walletForm = ref({ name: "", icon: "👛", target: "", initBalance: "", note: "", link_from: "", link_category: "" });
 function openAddWallet() {
   editingWallet.value = null;
-  walletForm.value = { name: "", icon: "👛", target: "", note: "", link_from: "", link_category: "" };
+  walletForm.value = { name: "", icon: "👛", target: "", initBalance: "", note: "", link_from: "", link_category: "" };
   showWallet.value = true;
 }
 function openEditWallet(w) {
@@ -85,6 +85,7 @@ function openEditWallet(w) {
     name: w.name,
     icon: w.icon || "👛",
     target: String(w.target || ""),
+    initBalance: "",
     note: w.note || "",
     link_from: w.linkFrom || "",
     link_category: w.linkCategory || "",
@@ -104,8 +105,24 @@ async function saveWallet() {
     link_category: walletForm.value.link_category || "",
   };
   try {
-    if (editingWallet.value) await api.put(`/wallets/${editingWallet.value.id}`, payload);
-    else await api.post("/wallets", payload);
+    let wid;
+    if (editingWallet.value) {
+      await api.put(`/wallets/${editingWallet.value.id}`, payload);
+      wid = editingWallet.value.id;
+    } else {
+      const { data: rd } = await api.post("/wallets", payload);
+      wid = rd.id;
+    }
+    // 初始 / 追加已存金额：保存时作为一笔存入，计入已存余额
+    const ib = evalExpr(walletForm.value.initBalance || "0");
+    if (isFinite(ib) && ib > 0) {
+      await api.post(`/wallets/${wid}/txns`, {
+        amount: ib,
+        direction: "in",
+        ymd: dayjs().format("YYYY-MM-DD"),
+        note: editingWallet.value ? "追加已存" : "初始已存",
+      });
+    }
     toast(editingWallet.value ? "已修改" : "已新增钱包");
     showWallet.value = false;
     load();
@@ -247,6 +264,13 @@ async function delTxn(t) {
             = {{ fmt(evalExpr(walletForm.target)) }}
           </span>
         </label>
+        <label class="field">
+          <span>已存金额（初始 / 追加，选填：保存时记为一笔存入，计入已存余额）</span>
+          <input class="input" v-model="walletForm.initBalance" placeholder="如 10000（留空则不入账）" />
+          <span class="muted small" v-if="isFinite(evalExpr(walletForm.initBalance)) && evalExpr(walletForm.initBalance) > 0">
+            = 将存入 {{ fmt(evalExpr(walletForm.initBalance)) }}
+          </span>
+        </label>
         <div class="field">
           <span>关联流水分类（可选）：自某日起，该分类的收支自动加减到本钱包</span>
           <div class="row" style="gap:10px;flex-wrap:wrap">
@@ -284,7 +308,7 @@ async function delTxn(t) {
         <div class="detail-sum">
           <div><div class="muted small">当前余额（手动+关联）</div><div class="big" :class="(detail.balance + detail.linkedSum) >= 0 ? 'income' : 'expense'">{{ fmt(detail.balance + detail.linkedSum) }}</div></div>
           <div v-if="detail.wallet.target"><div class="muted small">目标</div><div class="big">{{ fmt(detail.wallet.target) }}</div></div>
-          <div><div class="muted small">手动存入</div><div class="big income">{{ fmt(rows.reduce((s,x)=>s+(x.amount>0?x.amount:0),0)) }}</div></div>
+          <div><div class="muted small">手动存入</div><div class="big income">{{ fmt(detail.rows.reduce((s,x)=>s+(x.amount>0?x.amount:0),0)) }}</div></div>
           <div v-if="detail.linkCategory"><div class="muted small">关联自动（{{ detail.linkCategory }}）</div><div class="big" :class="detail.linkedSum >= 0 ? 'income' : 'expense'">{{ detail.linkedSum >= 0 ? '+' : '−' }}{{ fmt(Math.abs(detail.linkedSum)) }}</div></div>
         </div>
 

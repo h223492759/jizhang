@@ -289,7 +289,9 @@ function freqText(t) {
       </select>
       <input class="input" style="width:150px" v-model.trim="filter.keyword" placeholder="搜索名称" @keyup.enter="doFilter" />
 
-      <!-- 排序 -->
+      <div style="flex-basis:100%; height:0"></div>
+
+      <!-- 排序（第二行：金额 / 日期 在 升序降序 之前） -->
       <div class="seg sort-seg">
         <button :class="{ on: sortBy === 'amount' }" @click="sortBy = 'amount'; doFilter()">金额</button>
         <button :class="{ on: sortBy === 'flow_time' }" @click="sortBy = 'flow_time'; doFilter()">日期</button>
