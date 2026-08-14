@@ -287,7 +287,7 @@ async function saveHistEdit() {
     .filter((i) => isFinite(i.amount) && i.amount >= 0);
   if (!items.length) return toast("没有可保存的金额");
   try {
-    await api.post("/savings/items/bulk", { items, ymd: histEdit.value.ymd });
+    await api.post("/savings/items/bulk", { items, ymd: histEdit.value.ymd, mode: "history" });
     toast("已修改该月历史");
     showHistEdit.value = false;
     load();
@@ -619,7 +619,11 @@ async function saveHistEdit() {
           </div>
         </div>
         <div class="muted small" style="margin-bottom:10px">
-          作用在该月（{{ histEdit.ymd }}）的快照上，已按该月当时生效的细则预填；保存后写入该月历史，不影响当前余额。
+          <label class="field" style="margin-bottom:8px">
+            <span>记录日期（该月数据的真实更新日，可改；默认显示该月最近一次更新的日期）</span>
+            <DateInput v-model="histEdit.ymd" />
+          </label>
+          保存后写入该月历史快照（不影响当前余额），时间戳按上面日期保留。
         </div>
         <div class="upd-list">
           <div v-for="it in histEdit.form" :key="it.id" class="upd-row">

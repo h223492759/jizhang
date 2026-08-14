@@ -296,8 +296,10 @@ r.post(
   wrap((req, res) => {
     const list = Array.isArray(req.body?.items) ? req.body.items : [];
     if (!list.length) return res.status(400).json({ error: "没有需要更新的细则" });
-    const ymd = normAsOf(req.body?.ymd);
-    const isPast = ymd && ymd < today();
+    // mode=history：来自「修改某月历史」弹窗，始终按历史回填处理（写 manual 快照、不动当前余额），且保留用户选定的精确日期
+    const forceHistory = req.body?.mode === "history";
+    const ymd = normAsOf(req.body?.ymd) || (forceHistory ? today() : "");
+    const isPast = forceHistory || (ymd && ymd < today());
     if (isPast) {
       // 历史回填：按下表 sign 汇总净资产，写一条 manual 快照
       const byId = {};
