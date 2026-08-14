@@ -5,6 +5,7 @@ import api from "../api.js";
 import { useStore } from "../store.js";
 import { toast } from "../toast.js";
 import { resolvePieDetail, resolveBarDetail } from "../lib/statsDetail.js";
+import DateInput from "../components/DateInput.vue";
 
 const store = useStore();
 
@@ -230,9 +231,9 @@ function pct(f) {
         <option v-for="y in (facets.years.length?facets.years:[year])" :key="y" :value="y">{{ y }}年</option>
       </select>
       <template v-if="range==='custom'">
-        <input class="input" style="width:150px" type="date" v-model="custom.start" />
+        <DateInput v-model="custom.start" />
         <span class="muted">至</span>
-        <input class="input" style="width:150px" type="date" v-model="custom.end" />
+        <DateInput v-model="custom.end" />
         <button class="btn btn-sm btn-primary" @click="load">查询</button>
       </template>
     </div>

@@ -5,6 +5,7 @@ import api from "../api.js";
 import { toast } from "../toast.js";
 import { useStore } from "../store.js";
 import EChart from "../components/EChart.vue";
+import DateInput from "../components/DateInput.vue";
 
 const store = useStore();
 
@@ -312,7 +313,7 @@ async function saveTxnEdit() {
                 {{ c.name }}{{ c.type === 'income' ? '（收）' : '（支）' }}
               </option>
             </select>
-            <input class="input" type="date" v-model="walletForm.link_from" style="width:170px" placeholder="起始日期" />
+            <DateInput v-model="walletForm.link_from" />
           </div>
           <span class="muted small" v-if="walletForm.link_category">
             例：养娃基金关联「孩子」自某日 → 该分类的支出自动从钱包扣减、收入自动加回（余额 = 手动存入 + 关联净额）。
@@ -348,7 +349,7 @@ async function saveTxnEdit() {
         <div class="add-box">
           <div class="field" style="margin:0">
             <span>日期</span>
-            <input class="input" type="date" v-model="txnForm.ymd" style="width:160px" />
+            <DateInput v-model="txnForm.ymd" />
           </div>
           <div class="field" style="margin:0">
             <span>金额</span>

@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from "vue";
 import api from "../api.js";
 import { toast } from "../toast.js";
 import EChart from "../components/EChart.vue";
+import DateInput from "../components/DateInput.vue";
 
 const data = ref({
   goal: { target: 0, note: "" },
@@ -75,20 +76,24 @@ async function saveGoal() {
 const showItem = ref(false);
 const editingItem = ref(null);
 const itemForm = ref({ name: "", amount: "", sign: 1, note: "", as_of: "" });
+const asOfError = ref(false);
 function openAddItem() {
   editingItem.value = null;
   itemForm.value = { name: "", amount: "", sign: 1, note: "", as_of: "" }; // 默认为正
+  asOfError.value = false;
   showItem.value = true;
 }
 function openEditItem(it) {
   editingItem.value = it;
   itemForm.value = { name: it.name, amount: String(it.amount), sign: it.sign, note: it.note || "", as_of: it.as_of || "" };
+  asOfError.value = false;
   showItem.value = true;
 }
 async function saveItem() {
   const amt = evalExpr(itemForm.value.amount || "0");
   if (!isFinite(amt) || amt < 0) return toast("金额请填正数，正负用「计入方式」选择");
   if (!itemForm.value.name.trim()) return toast("请填写名称");
+  if (asOfError.value) return toast("生效日期格式不对，请按 8 位（如 20260814）或 2026-08-14 输入");
   const payload = { name: itemForm.value.name.trim(), amount: amt, sign: itemForm.value.sign, note: itemForm.value.note, as_of: itemForm.value.as_of };
   try {
     if (editingItem.value) await api.put(`/savings/items/${editingItem.value.id}`, payload);
@@ -167,8 +172,8 @@ async function saveUpdate() {
     .filter((i) => isFinite(i.amount) && i.amount >= 0);
   if (!items.length) return toast("没有可保存的金额");
   try {
-    await api.post("/savings/items/bulk", { items, ymd: updDate });
-    toast(updDate < new Date().toLocaleDateString("sv-SE") ? "已回填历史快照" : "资产已更新，本月记录已刷新");
+    await api.post("/savings/items/bulk", { items, ymd: updDate.value });
+    toast(updDate.value < new Date().toLocaleDateString("sv-SE") ? "已回填历史快照" : "资产已更新，本月记录已刷新");
     showUpdate.value = false;
     load();
   } catch (e) { toast(e.message); }
@@ -392,7 +397,7 @@ const monthsDesc = computed(() => [...(data.value.months || [])].reverse());
         </label>
         <label class="field">
           <span>生效日期（可选：填历史日期可回填该月资产，留空视为当前）</span>
-          <input class="input" type="date" v-model="itemForm.as_of" style="width:200px" />
+          <DateInput v-model="itemForm.as_of" @error="asOfError = $event" />
         </label>
       </div>
     </div>
@@ -475,7 +480,7 @@ const monthsDesc = computed(() => [...(data.value.months || [])].reverse());
         <div class="muted small" style="margin-bottom:10px">
           <label class="field" style="margin-bottom:8px">
             <span>记录日期（默认今天；选历史日期可回填该日净资产快照，且不会改动当前余额）</span>
-            <input class="input" type="date" v-model="updDate" style="width:200px" />
+            <DateInput v-model="updDate" />
           </label>
           同一个月多次更新，历史里只保留该月最后一次的数据。
         </div>

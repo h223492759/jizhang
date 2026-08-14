@@ -4,6 +4,7 @@ import dayjs from "dayjs";
 import api from "../api.js";
 import { useStore } from "../store.js";
 import { toast } from "../toast.js";
+import DateInput from "./DateInput.vue";
 
 const props = defineProps({
   modelValue: Boolean,
@@ -241,7 +242,7 @@ function close() {
       <div class="row">
         <label class="field" style="flex: 1">
           <span>日期</span>
-          <input class="input" type="date" v-model="form.flow_time" />
+          <DateInput v-model="form.flow_time" />
         </label>
         <label class="field" style="flex: 1">
           <span>支付方式</span>
