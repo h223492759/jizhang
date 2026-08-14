@@ -237,6 +237,9 @@ addColumnIfMissing("recurring", "attribution", "attribution TEXT NOT NULL DEFAUL
 // 资金细则可带一个生效日期（用于回填历史资产），空=当前
 addColumnIfMissing("savings_items", "as_of", "as_of TEXT NOT NULL DEFAULT ''");
 
+// 历史月净资产快照：manual=1 表示人工回填的历史快照，rebuildHistory 不再覆盖该月
+addColumnIfMissing("savings_history", "manual", "manual INTEGER NOT NULL DEFAULT 0");
+
 // 给用户分配一个稳定的颜色（按用户名哈希，避免每次刷新都变）
 const USER_PALETTE = ["#6366f1","#ef4444","#f59e0b","#10b981","#3b82f6","#ec4899","#8b5cf6","#14b8a6","#f97316","#0ea5e9","#a855f7","#22c55e"];
 export function pickColor(seed) {

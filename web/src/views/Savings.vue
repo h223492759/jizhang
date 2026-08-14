@@ -144,8 +144,10 @@ async function delItemHistory(h) {
 // ---------------- 更新资产和负债（批量填金额） ----------------
 const showUpdate = ref(false);
 const updForm = ref([]);
+const updDate = ref(new Date().toLocaleDateString("sv-SE")); // YYYY-MM-DD（本地时区），默认今天
 function openUpdate() {
   if (!data.value.items.length) return toast("请先新增资金细则");
+  updDate.value = new Date().toLocaleDateString("sv-SE");
   updForm.value = data.value.items.map((i) => ({ id: i.id, name: i.name, sign: i.sign, amount: String(i.amount) }));
   showUpdate.value = true;
 }
@@ -165,8 +167,8 @@ async function saveUpdate() {
     .filter((i) => isFinite(i.amount) && i.amount >= 0);
   if (!items.length) return toast("没有可保存的金额");
   try {
-    await api.post("/savings/items/bulk", { items });
-    toast("资产已更新，本月记录已刷新");
+    await api.post("/savings/items/bulk", { items, ymd: updDate });
+    toast(updDate < new Date().toLocaleDateString("sv-SE") ? "已回填历史快照" : "资产已更新，本月记录已刷新");
     showUpdate.value = false;
     load();
   } catch (e) { toast(e.message); }
@@ -471,7 +473,11 @@ const monthsDesc = computed(() => [...(data.value.months || [])].reverse());
           </div>
         </div>
         <div class="muted small" style="margin-bottom:10px">
-          不用管时间，随时更新即可。同一个月多次更新，历史里只保留该月最后一次的数据。
+          <label class="field" style="margin-bottom:8px">
+            <span>记录日期（默认今天；选历史日期可回填该日净资产快照，且不会改动当前余额）</span>
+            <input class="input" type="date" v-model="updDate" style="width:200px" />
+          </label>
+          同一个月多次更新，历史里只保留该月最后一次的数据。
         </div>
         <div class="upd-list">
           <div v-for="it in updForm" :key="it.id" class="upd-row">

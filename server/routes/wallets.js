@@ -235,6 +235,33 @@ r.post(
   })
 );
 
+// 修改单笔资金记录
+r.put(
+  "/txns/:txnId",
+  requireBook,
+  wrap((req, res) => {
+    const txn = db
+      .prepare("SELECT * FROM wallet_txns WHERE id=? AND book_id=?")
+      .get(req.params.txnId, req.bookId);
+    if (!txn) return res.status(404).json({ error: "记录不存在" });
+    const amt = Number(req.body?.amount);
+    if (!(amt > 0)) return res.status(400).json({ error: "金额必须大于 0" });
+    const signed = req.body?.direction === "out" ? -amt : amt;
+    db.prepare(
+      `UPDATE wallet_txns SET amount=?, ymd=?, note=?, op_user=?
+       WHERE id=? AND book_id=?`
+    ).run(
+      signed,
+      normDate(req.body?.ymd),
+      (req.body?.note || "").toString().trim(),
+      req.user.nickname || "",
+      req.params.txnId,
+      req.bookId
+    );
+    res.json({ ok: true });
+  })
+);
+
 // 删除资金记录
 r.delete(
   "/txns/:txnId",

@@ -176,6 +176,37 @@ async function delTxn(t) {
     load();
   } catch (e) { toast(e.message); }
 }
+// 修改单笔资金记录：复用 txnForm，editingTxnId 非空即编辑态
+const editingTxnId = ref(null);
+function editTxn(t) {
+  editingTxnId.value = t.id;
+  txnForm.value = {
+    amount: String(Math.abs(t.amount)),
+    direction: t.amount < 0 ? "out" : "in",
+    ymd: t.ymd,
+    note: t.note || "",
+  };
+}
+function cancelEditTxn() {
+  editingTxnId.value = null;
+  resetTxnForm();
+}
+async function saveTxnEdit() {
+  const amt = evalExpr(txnForm.value.amount || "0");
+  if (!isFinite(amt) || amt <= 0) return toast("金额必须大于 0");
+  try {
+    await api.put(`/wallets/txns/${editingTxnId.value}`, {
+      amount: amt,
+      direction: txnForm.value.direction,
+      ymd: txnForm.value.ymd,
+      note: txnForm.value.note.trim(),
+    });
+    toast("已修改");
+    cancelEditTxn();
+    openDetail(detail.value.wallet);
+    load();
+  } catch (e) { toast(e.message); }
+}
 </script>
 
 <template>
@@ -334,7 +365,11 @@ async function delTxn(t) {
             <span>备注</span>
             <input class="input" v-model="txnForm.note" placeholder="如 工资转入" />
           </div>
-          <button class="btn btn-primary add-btn" @click="addTxn">新增资金</button>
+          <button v-if="!editingTxnId" class="btn btn-primary add-btn" @click="addTxn">新增资金</button>
+          <template v-else>
+            <button class="btn btn-primary add-btn" @click="saveTxnEdit">保存修改</button>
+            <button class="btn add-btn" @click="cancelEditTxn">取消</button>
+          </template>
         </div>
 
         <!-- 资金记录 -->
@@ -357,7 +392,10 @@ async function delTxn(t) {
               </td>
               <td class="muted">{{ t.note || '—' }}</td>
               <td class="c-op muted hide-mobile">{{ t.op_user || '—' }}</td>
-              <td class="c-act"><button class="btn btn-sm btn-danger" @click="delTxn(t)">删</button></td>
+              <td class="c-act">
+                <button class="btn btn-sm" @click="editTxn(t)">改</button>
+                <button class="btn btn-sm btn-danger" @click="delTxn(t)">删</button>
+              </td>
             </tr>
             <tr v-if="!detail.rows.length">
               <td colspan="5" class="muted" style="text-align:center;padding:24px 0">还没有资金记录</td>
@@ -434,7 +472,7 @@ async function delTxn(t) {
 .txn-tbl .c-d { width: 110px; white-space: nowrap; }
 .txn-tbl .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .txn-tbl .c-op { width: 90px; }
-.txn-tbl .c-act { width: 50px; text-align: right; }
+.txn-tbl .c-act { width: 96px; text-align: right; }
 
 @media (max-width: 1000px) { .wallet-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 720px) {

@@ -23,9 +23,11 @@ db.prepare(`
 
 const today = () => new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD（本地时区）
 
-// 生效日期归一：YYYY-MM-DD 或空（空=当前/未指定）
+// 生效日期归一：YYYY-MM-DD 或空（空=当前/未指定）。支持 8 位紧凑输入 20241217 → 2024-12-17
 const normAsOf = (s) => {
   const d = String(s || "").trim();
+  const digits = d.replace(/\D/g, "");
+  if (digits.length === 8) return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
   if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
   return "";
 };
@@ -73,6 +75,13 @@ function rebuildHistory(bookId, user) {
       if (ym < startYm) startYm = ym;
     }
   }
+  const hasAsOf = items.some((it) => it.as_of && /^\d{4}-\d{2}-\d{2}$/.test(it.as_of));
+  // 清理早于「最早生效月」的自动快照（manual=0），避免历史图表/记录里出现生效日之前的旧数据
+  if (hasAsOf) {
+    db.prepare(
+      "DELETE FROM savings_history WHERE book_id=? AND substr(ymd,1,7) < ? AND manual=0"
+    ).run(bookId, startYm);
+  }
   const monthList = [];
   let cur = dayjs(startYm + "-01");
   while (!cur.isAfter(now, "month")) {
@@ -88,6 +97,11 @@ function rebuildHistory(bookId, user) {
   );
   const tx = db.transaction(() => {
     for (const ym of monthList) {
+      // 该月若已有「人工回填的历史快照」则跳过，避免被自动重建覆盖
+      const hasManual = db
+        .prepare("SELECT 1 FROM savings_history WHERE book_id=? AND substr(ymd,1,7)=? AND manual=1 LIMIT 1")
+        .get(bookId, ym);
+      if (hasManual) continue;
       const monthEnd = dayjs(ym + "-01").endOf("month");
       const isCur = ym === now.format("YYYY-MM");
       const ymd = isCur ? now.format("YYYY-MM-DD") : monthEnd.format("YYYY-MM-DD");
@@ -238,12 +252,49 @@ r.put(
 );
 
 // 批量更新各细则金额（「更新资产和负债」一次填完保存）
+// - 不传 ymd 或 ymd>=今天：视为「更新当前余额」→ 改写各细则 amount 并重建历史
+// - 传历史日期 ymd<今天：视为「回填历史快照」→ 只写入该日净资产快照(manual=1)，不动当前余额
 r.post(
   "/items/bulk",
   requireBook,
   wrap((req, res) => {
     const list = Array.isArray(req.body?.items) ? req.body.items : [];
     if (!list.length) return res.status(400).json({ error: "没有需要更新的细则" });
+    const ymd = normAsOf(req.body?.ymd);
+    const isPast = ymd && ymd < today();
+    if (isPast) {
+      // 历史回填：按下表 sign 汇总净资产，写一条 manual 快照
+      const byId = {};
+      for (const it of getItems(req.bookId)) byId[it.id] = it;
+      let asset = 0,
+        liability = 0;
+      for (const it of list) {
+        const amt = Number(it.amount);
+        if (!(amt >= 0)) continue;
+        const dbItem = byId[Number(it.id)];
+        if (!dbItem) continue;
+        if (Number(dbItem.sign) < 0) liability += amt;
+        else asset += amt;
+      }
+      const ym = ymd.slice(0, 7);
+      const tx = db.transaction(() => {
+        // 先清掉该月自动生成的快照（如有），避免与 manual 快照并存导致取最大值时取错
+        db.prepare(
+          "DELETE FROM savings_history WHERE book_id=? AND substr(ymd,1,7)=? AND manual=0"
+        ).run(req.bookId, ym);
+        db.prepare(
+          `INSERT INTO savings_history (book_id, ymd, asset, liability, net, user_id, op_user, updated_at, manual)
+           VALUES (?,?,?,?,?,?,?, datetime('now','localtime'), 1)
+           ON CONFLICT(book_id, ymd) DO UPDATE SET
+             asset=excluded.asset, liability=excluded.liability, net=excluded.net,
+             user_id=excluded.user_id, op_user=excluded.op_user, updated_at=excluded.updated_at, manual=1`
+        ).run(req.bookId, ymd, asset, liability, asset - liability, req.user?.id || 0, req.user?.nickname || "");
+      });
+      tx();
+      res.json({ ok: true, asset, liability, net: asset - liability, manual: true });
+      return;
+    }
+    // 当前余额更新
     const stmt = db.prepare(
       `UPDATE savings_items SET amount=?, updated_at=datetime('now','localtime') WHERE id=? AND book_id=?`
     );
