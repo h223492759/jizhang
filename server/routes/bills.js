@@ -147,14 +147,16 @@ r.get(
     const monthExpense = Number(agg.expense) || 0;
     const monthBalance = monthIncome - monthExpense;
 
-    // 区域 2：上月结余 = 本月之前所有流水的累计净结余
+    // 区域 2：上月结余 = 上一日历月的净收支（仅该月 income-expense，不累加历史）
+    const prevMonth = dayjs(`${ym}-01`).subtract(1, "month");
+    const prevYm = prevMonth.format("YYYY-MM");
     const before = db
       .prepare(
         `SELECT COALESCE(SUM(CASE WHEN type='income'  THEN amount END),0) AS income,
                 COALESCE(SUM(CASE WHEN type='expense' THEN amount END),0) AS expense
-         FROM flows WHERE book_id=? AND flow_time < ?`
+         FROM flows WHERE book_id=? AND substr(flow_time,1,7)=?`
       )
-      .get(bookId, `${ym}-01 00:00:00`);
+      .get(bookId, prevYm);
     const lastMonthBalance =
       (Number(before.income) || 0) - (Number(before.expense) || 0);
 

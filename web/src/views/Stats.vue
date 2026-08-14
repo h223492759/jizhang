@@ -320,7 +320,7 @@ export default { components: { EChart } };
 @media (max-width: 720px) { .cards { grid-template-columns: repeat(2,1fr); } .charts { grid-template-columns: 1fr; } .daily-card { grid-column: span 1; } }
 
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
-.modal { background: var(--surface); color: var(--text); width: min(1600px, 100%); max-height: 84vh; border-radius: 14px; display: flex; flex-direction: column; box-shadow: var(--shadow); overflow: hidden; }
+.modal { background: var(--surface); color: var(--text); width: min(1600px, 100%); max-height: 88vh; border-radius: 14px; display: flex; flex-direction: column; box-shadow: var(--shadow); overflow: hidden; }
 .modal-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--surface-2); flex-wrap: wrap; }
 .modal-head .muted { font-size: 13px; }
 .seg.sm { padding: 2px; }
@@ -331,7 +331,7 @@ export default { components: { EChart } };
 /* 明细列表：柱状图样式，每条记录 = 左(分类图标+名) + 右(行1 名称+百分比+金额 / 行2 柱状 / 行3 日期) */
 .detail-list { display: flex; flex-direction: column; gap: 10px; }
 .detail-row { display: flex; gap: 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
-.dr-cat { flex: 0 0 150px; display: flex; align-items: center; gap: 8px; }
+.dr-cat { flex: 0 0 112px; display: flex; align-items: center; gap: 6px; justify-content: flex-start; }
 .dr-icon { font-size: 22px; }
 .dr-catname { font-weight: 700; font-size: 15px; color: var(--text); }
 .dr-main { flex: 1; min-width: 0; }

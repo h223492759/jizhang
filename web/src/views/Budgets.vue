@@ -113,6 +113,8 @@ async function openChart(c) {
   chartCat.value = c;
   showChart.value = true;
   chartMonthly.value = [];
+  showDetail.value = false;
+  detailList.value = [];
   try {
     const { data } = await api.get("/stats/monthly", { params: { year: year.value, category: c.category } });
     chartMonthly.value = data;
@@ -127,11 +129,42 @@ const chartOpt = computed(() => ({
   xAxis: { type: "category", data: chartMonthly.value.map((m) => m.month.slice(5) + "月") },
   yAxis: { type: "value" },
   series: [{
-    name: "支出", type: "bar", cursor: "default",
+    name: "支出", type: "bar", cursor: "pointer",
     data: chartMonthly.value.map((m) => Number(m.expense || 0)),
     itemStyle: { color: "#ef4444", borderRadius: [4, 4, 0, 0] },
   }],
 }));
+
+// 点击某根柱子 → 展开该月该分类的明细流水
+const showDetail = ref(false);
+const detailMonth = ref("");
+const detailLoading = ref(false);
+const detailList = ref([]);
+const detailSum = computed(() => detailList.value.reduce((s, m) => s + Number(m.amount || 0), 0));
+async function onChartClick(params) {
+  const m = chartMonthly.value[params?.dataIndex];
+  if (!m) return;
+  const ym = m.month;
+  detailMonth.value = `${ym} ${chartCat.value?.category} 明细`;
+  showDetail.value = true;
+  detailLoading.value = true;
+  detailList.value = [];
+  try {
+    const { data } = await api.get("/flows", {
+      params: {
+        category: chartCat.value.category,
+        start: `${ym}-01`, end: `${ym}-31`,
+        pageSize: 200, sortBy: "flow_time", order: "asc",
+      },
+    });
+    detailList.value = data.list || [];
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    detailLoading.value = false;
+  }
+}
+function closeDetail() { showDetail.value = false; detailList.value = []; }
 
 // 复制预算
 async function doCopy() {
@@ -264,7 +297,27 @@ async function doCopy() {
         <div class="muted small" style="margin: 2px 0 10px">
           全年合计 {{ fmt(chartTotal) }}
         </div>
-        <EChart :option="chartOpt" :height="'340px'" />
+        <EChart :option="chartOpt" :height="'340px'" @click="onChartClick" />
+        <p class="muted small" style="margin: 6px 0 0">提示：点击任意一根柱子，可查看该月「{{ chartCat?.category }}」的明细流水 ↓</p>
+
+        <!-- 点击柱子后的明细面板 -->
+        <div v-if="showDetail" class="chart-detail">
+          <div class="cd-head">
+            <b>{{ detailMonth }}</b>
+            <span class="muted small">共 {{ detailList.length }} 笔 · 支出 {{ fmt(detailSum) }}</span>
+            <button class="btn btn-sm" @click="closeDetail">收起</button>
+          </div>
+          <div v-if="detailLoading" class="muted small" style="padding:10px 0">加载中…</div>
+          <div v-else class="cd-list">
+            <div v-for="it in detailList" :key="it.id" class="cd-item">
+              <span class="cd-date">{{ (it.flow_time || '').slice(5, 10) }}</span>
+              <span class="cd-desc">{{ it.description || it.category }}</span>
+              <span class="cd-pay muted small">{{ it.payment_method || '未标注' }}</span>
+              <span class="cd-amt expense">{{ fmt(it.amount) }}</span>
+            </div>
+            <div v-if="!detailList.length" class="muted small" style="padding:10px 0">该月无此分类流水</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -312,6 +365,16 @@ async function doCopy() {
 .cc.disabled { opacity: .45; cursor: not-allowed; }
 .preview-box { margin: 4px 0 12px; padding: 10px 12px; background: var(--surface-2); border-radius: 10px; }
 .prev-row { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 3px 0; }
+.chart-detail { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; }
+.cd-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.cd-head .btn { margin-left: auto; }
+.cd-list { max-height: 46vh; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.cd-item { display: grid; grid-template-columns: 64px 1fr auto auto; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 8px; background: var(--surface-2); font-size: 14px; }
+.cd-item:hover { background: var(--surface-3, var(--surface-2)); }
+.cd-date { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.cd-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-pay { font-size: 12px; }
+.cd-amt { font-variant-numeric: tabular-nums; font-weight: 600; }
 .small { font-size: 12px; }
 @media (max-width: 900px) { .cat-list { grid-template-columns: repeat(2, 1fr); } }
 </style>

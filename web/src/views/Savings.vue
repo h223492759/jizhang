@@ -42,6 +42,17 @@ function evalExpr(s) {
   } catch { return NaN; }
 }
 
+// 生效日期：支持整串输入年月日（"20260813" → "2026-08-13"），也接受 "2026-08-13"
+// 部分输入（如 "2026-08"）原样保留，便于继续输入
+function normAsOf(s) {
+  if (!s) return "";
+  s = String(s).trim();
+  const m = s.replace(/\D/g, "");
+  if (m.length === 8) return `${m.slice(0, 4)}-${m.slice(4, 6)}-${m.slice(6, 8)}`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  return s;
+}
+
 // ---------------- 设定目标 ----------------
 const showGoal = ref(false);
 const goalForm = ref({ target: "", note: "" });
@@ -345,7 +356,7 @@ const monthsDesc = computed(() => [...(data.value.months || [])].reverse());
         </label>
         <label class="field">
           <span>生效日期（可选：填历史日期可回填该月资产，留空视为当前）</span>
-          <input class="input" type="date" v-model="itemForm.as_of" style="width:180px" />
+          <input class="input" type="text" :value="itemForm.as_of" @input="e => itemForm.as_of = normAsOf(e.target.value)" style="width:200px" placeholder="如 20260813 或 2026-08-13" />
         </label>
       </div>
     </div>

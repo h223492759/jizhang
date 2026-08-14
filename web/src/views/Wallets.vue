@@ -172,17 +172,14 @@ async function delTxn(t) {
     <div class="card" v-if="data.wallets.length">
       <div class="ov-head">
         <div>
-          <div class="muted">专项金总余额</div>
+          <div class="muted">已存合计</div>
           <div class="ov-num">{{ fmt(total.balance) }}</div>
         </div>
         <div class="ov-now">
-          <div class="muted">目标合计</div>
-          <div class="ov-tgt">{{ total.target ? fmt(total.target) : '未设' }}</div>
-          <div class="muted small" v-if="total.target">整体达成 {{ total.percent }}%</div>
+          <div class="muted">已存金额</div>
+          <div class="ov-tgt">{{ total.balance ? fmt(total.balance) : '0' }}</div>
+          <div class="muted small">共 {{ data.wallets.length }} 个钱包</div>
         </div>
-      </div>
-      <div class="bar" style="margin-top:12px;height:10px" v-if="total.target">
-        <i :style="{ width: pctClamped + '%', background: total.balance >= total.target ? 'var(--income)' : 'var(--primary)' }"></i>
       </div>
     </div>
 
