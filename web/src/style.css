@@ -61,6 +61,7 @@ a { color: inherit; text-decoration: none; }
 .btn-primary:hover { filter: brightness(1.08); color: #fff; }
 .btn-danger { color: var(--expense); border-color: transparent; background: transparent; }
 .btn-sm { padding: 5px 10px; font-size: 13px; border-radius: 8px; }
+.btn-lg { padding: 12px 22px; font-size: 15px; font-weight: 600; border-radius: 12px; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .input, .select, textarea.input {

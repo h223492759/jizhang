@@ -6,6 +6,21 @@ import { auth, requireBook, wrap } from "../mw.js";
 const r = Router();
 r.use(auth);
 
+// 资金细则的「历史资金记录」：每次直接修改当前金额都记一笔（用于明细弹窗展示）
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS savings_item_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL,
+    book_id INTEGER NOT NULL,
+    ymd TEXT NOT NULL,
+    amount REAL NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    user_id INTEGER NOT NULL DEFAULT 0,
+    op_user TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  )
+`).run();
+
 const today = () => new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD（本地时区）
 
 // 生效日期归一：YYYY-MM-DD 或空（空=当前/未指定）
@@ -94,21 +109,40 @@ function rebuildHistory(bookId, user) {
   return { asset, liability, net };
 }
 
+// 最早生效日期所在月：所有细则 as_of 中最早的那个月（无 as_of 则返回 null）
+function earliestAsOfMonth(bookId) {
+  const rows = db
+    .prepare("SELECT as_of FROM savings_items WHERE book_id=? AND as_of<>''")
+    .all(bookId);
+  let ym = null;
+  for (const r of rows) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(r.as_of)) {
+      const m = r.as_of.slice(0, 7);
+      if (ym === null || m < ym) ym = m;
+    }
+  }
+  return ym;
+}
+
 // 历史：每月取「该月最后更新日期」那一条（每个月只显示一次数据）
+// 过滤掉早于「最早生效日期」所在月的记录（图表与历史记录表共用，保证都不显示之前的数据）
 function monthlyHistory(bookId) {
-  return db
-    .prepare(
-      `SELECT h.ymd, substr(h.ymd,1,7) AS month, h.asset, h.liability, h.net,
+  const startYm = earliestAsOfMonth(bookId);
+  let sql = `SELECT h.ymd, substr(h.ymd,1,7) AS month, h.asset, h.liability, h.net,
               ${OP_EXPR("h")} AS op_user
        FROM savings_history h
        JOIN (
          SELECT substr(ymd,1,7) AS m, MAX(ymd) AS mx
          FROM savings_history WHERE book_id=? GROUP BY m
        ) t ON substr(h.ymd,1,7)=t.m AND h.ymd=t.mx
-       WHERE h.book_id=?
-       ORDER BY h.ymd`
-    )
-    .all(bookId, bookId);
+       WHERE h.book_id=?`;
+  const params = [bookId, bookId];
+  if (startYm) {
+    sql += " AND substr(h.ymd,1,7) >= ?";
+    params.push(startYm);
+  }
+  sql += " ORDER BY h.ymd";
+  return db.prepare(sql).all(...params);
 }
 
 // 总览：目标 + 细则 + 当前净资产 + 按月历史
@@ -248,6 +282,68 @@ r.delete(
     db.prepare("DELETE FROM savings_history WHERE book_id=? AND ymd=?").run(
       req.bookId,
       req.params.ymd
+    );
+    res.json({ ok: true });
+  })
+);
+
+// 资金明细：查看某条细则的历史资金记录（每次直接改金额都记一笔）
+r.get(
+  "/items/:id/history",
+  requireBook,
+  wrap((req, res) => {
+    const it = db
+      .prepare("SELECT * FROM savings_items WHERE id=? AND book_id=?")
+      .get(req.params.id, req.bookId);
+    if (!it) return res.status(404).json({ error: "细则不存在" });
+    const rows = db
+      .prepare(
+        `SELECT h.*, ${OP_EXPR("h")} AS op_user
+         FROM savings_item_history h
+         WHERE h.item_id=? AND h.book_id=? ORDER BY h.created_at DESC, h.id DESC`
+      )
+      .all(it.id, req.bookId);
+    res.json({ item: it, rows });
+  })
+);
+
+// 直接修改当前金额（不是存入流水，而是设值），并记一条历史
+r.post(
+  "/items/:id/set-amount",
+  requireBook,
+  wrap((req, res) => {
+    const cur = db
+      .prepare("SELECT * FROM savings_items WHERE id=? AND book_id=?")
+      .get(req.params.id, req.bookId);
+    if (!cur) return res.status(404).json({ error: "细则不存在" });
+    const amount = Number(req.body?.amount);
+    if (!(amount >= 0)) return res.status(400).json({ error: "金额请填正数" });
+    const note = (req.body?.note || "").toString().trim();
+    const ymd = today();
+    db.transaction(() => {
+      db.prepare("UPDATE savings_items SET amount=?, updated_at=datetime('now','localtime') WHERE id=?").run(
+        amount,
+        cur.id
+      );
+      db.prepare(
+        "INSERT INTO savings_item_history (item_id, book_id, ymd, amount, note, user_id, op_user) VALUES (?,?,?,?,?,?,?)"
+      ).run(cur.id, req.bookId, ymd, amount, note, req.user?.id || 0, req.user?.nickname || "");
+    })();
+    const item = db.prepare("SELECT * FROM savings_items WHERE id=?").get(cur.id);
+    const snap = rebuildHistory(req.bookId, req.user);
+    res.json({ ok: true, item, ...snap });
+  })
+);
+
+// 删除一条历史资金记录
+r.delete(
+  "/items/:id/history/:hid",
+  requireBook,
+  wrap((req, res) => {
+    db.prepare("DELETE FROM savings_item_history WHERE id=? AND item_id=? AND book_id=?").run(
+      req.params.hid,
+      req.params.id,
+      req.bookId
     );
     res.json({ ok: true });
   })

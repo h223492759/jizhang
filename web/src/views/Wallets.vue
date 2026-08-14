@@ -230,7 +230,8 @@ async function delTxn(t) {
         <div class="muted small w-meta">存入 {{ fmt(w.total_in) }}｜支出 {{ fmt(w.total_out) }}</div>
         <div class="muted small">最近 {{ w.last_ymd || '—' }}</div>
         <div class="w-foot" @click.stop>
-          <button class="btn btn-sm" @click="openEditWallet(w)">改</button>
+          <button class="btn btn-sm" @click="openEditWallet(w)">修改钱包信息</button>
+          <button class="btn btn-sm" @click="openDetail(w)">改</button>
           <button class="btn btn-sm btn-danger" @click="delWallet(w)">删</button>
         </div>
       </div>

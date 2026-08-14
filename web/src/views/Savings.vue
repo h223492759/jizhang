@@ -107,6 +107,40 @@ async function delItem(it) {
   } catch (e) { toast(e.message); }
 }
 
+// ---------------- 资金明细：直接改金额 + 历史记录（仿分类钱包小钱包） ----------------
+const showItemDetail = ref(false);
+const itemDetail = ref({ item: {}, rows: [] });
+const itemAdjForm = ref({ amount: "", note: "" });
+async function openItemDetail(it) {
+  try {
+    const { data: d } = await api.get(`/savings/items/${it.id}/history`);
+    itemDetail.value = d;
+    itemAdjForm.value = { amount: String(d.item.amount), note: "" };
+    showItemDetail.value = true;
+  } catch (e) { toast(e.message); }
+}
+async function saveItemAmount() {
+  const amt = evalExpr(itemAdjForm.value.amount || "0");
+  if (!isFinite(amt) || amt < 0) return toast("金额请填正数");
+  try {
+    const { data: d } = await api.post(`/savings/items/${itemDetail.value.item.id}/set-amount`, {
+      amount: amt,
+      note: itemAdjForm.value.note.trim(),
+    });
+    toast("已更新当前金额");
+    await openItemDetail(d.item); // 刷新明细与历史
+    load(); // 刷新卡片与折线图
+  } catch (e) { toast(e.message); }
+}
+async function delItemHistory(h) {
+  if (!confirm("删除这条历史记录？")) return;
+  try {
+    await api.delete(`/savings/items/${itemDetail.value.item.id}/history/${h.id}`);
+    toast("已删除");
+    await openItemDetail(itemDetail.value.item);
+  } catch (e) { toast(e.message); }
+}
+
 // ---------------- 更新资产和负债（批量填金额） ----------------
 const showUpdate = ref(false);
 const updForm = ref([]);
@@ -201,7 +235,7 @@ const monthsDesc = computed(() => [...(data.value.months || [])].reverse());
       <h2 class="page-title" style="margin:0">存款目标</h2>
       <div class="row" style="gap:8px">
         <button class="btn btn-sm" @click="openGoal">{{ target ? '修改目标' : '设定目标' }}</button>
-        <button class="btn btn-sm btn-primary" @click="openUpdate">更新资产和负债</button>
+        <button class="btn btn-lg btn-primary" @click="openUpdate">更新资产和负债</button>
       </div>
     </div>
 
@@ -238,7 +272,7 @@ const monthsDesc = computed(() => [...(data.value.months || [])].reverse());
       <button class="btn btn-sm btn-primary" @click="openAddItem">＋ 新增细则</button>
     </div>
     <div class="grid item-grid">
-      <div v-for="it in data.items" :key="it.id" class="card item" :class="it.sign < 0 ? 'neg' : 'pos'">
+      <div v-for="it in data.items" :key="it.id" class="card item" :class="it.sign < 0 ? 'neg' : 'pos'" @click="openItemDetail(it)">
         <div class="item-top">
           <b>{{ it.name }}</b>
           <span class="tag" :class="it.sign < 0 ? 'tag-neg' : 'tag-pos'">{{ it.sign < 0 ? '负债 −' : '资产 +' }}</span>
@@ -250,8 +284,8 @@ const monthsDesc = computed(() => [...(data.value.months || [])].reverse());
         <div class="item-foot">
           <span class="muted small">{{ it.as_of ? '生效 ' + it.as_of : '更新 ' + (it.updated_at || '').slice(0, 10) }}</span>
           <span>
-            <button class="btn btn-sm" @click="openEditItem(it)">改</button>
-            <button class="btn btn-sm btn-danger" @click="delItem(it)">删</button>
+            <button class="btn btn-sm" @click.stop="openEditItem(it)">改</button>
+            <button class="btn btn-sm btn-danger" @click.stop="delItem(it)">删</button>
           </span>
         </div>
       </div>
@@ -356,8 +390,73 @@ const monthsDesc = computed(() => [...(data.value.months || [])].reverse());
         </label>
         <label class="field">
           <span>生效日期（可选：填历史日期可回填该月资产，留空视为当前）</span>
-          <input class="input" type="text" :value="itemForm.as_of" @input="e => itemForm.as_of = normAsOf(e.target.value)" style="width:200px" placeholder="如 20260813 或 2026-08-13" />
+          <input class="input" type="date" v-model="itemForm.as_of" style="width:200px" />
         </label>
+      </div>
+    </div>
+
+    <!-- 资金明细弹窗（直接改金额 + 历史记录） -->
+    <div v-if="showItemDetail" class="modal-mask" @click.self="showItemDetail = false">
+      <div class="modal" style="max-width:640px">
+        <div class="modal-head">
+          <h3 class="modal-title" style="margin:0">
+            <b>{{ itemDetail.item.name }}</b>
+            <span class="tag" :class="itemDetail.item.sign < 0 ? 'tag-neg' : 'tag-pos'">{{ itemDetail.item.sign < 0 ? '负债 −' : '资产 +' }}</span>
+          </h3>
+          <div class="row" style="gap:8px">
+            <button class="btn" @click="showItemDetail = false">关闭</button>
+          </div>
+        </div>
+
+        <div class="detail-sum">
+          <div>
+            <div class="muted small">当前金额</div>
+            <div class="big" :class="itemDetail.item.sign < 0 ? 'expense' : 'income'">
+              {{ itemDetail.item.sign < 0 ? '−' : '' }}{{ fmt(itemDetail.item.amount) }}
+            </div>
+          </div>
+        </div>
+
+        <!-- 直接修改当前金额（不是存入流水，而是设值） -->
+        <div class="add-box">
+          <div class="field" style="margin:0">
+            <span>直接修改当前金额</span>
+            <input class="input" v-model="itemAdjForm.amount" placeholder="如 50000" style="width:160px" />
+          </div>
+          <div class="field" style="margin:0">
+            <span>备注（可选）</span>
+            <input class="input" v-model="itemAdjForm.note" placeholder="如 月末盘点" />
+          </div>
+          <button class="btn btn-primary" @click="saveItemAmount">保存修改</button>
+        </div>
+
+        <!-- 历史资金记录 -->
+        <div class="section-title" style="margin:18px 0 10px">历史资金记录（日期 · 金额 · 操作人）</div>
+        <table class="tbl txn-tbl">
+          <thead>
+            <tr>
+              <th class="c-d">日期</th>
+              <th class="num">金额</th>
+              <th>备注</th>
+              <th class="c-op hide-mobile">操作人</th>
+              <th class="c-act"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="h in itemDetail.rows" :key="h.id">
+              <td class="c-d"><b>{{ h.ymd }}</b></td>
+              <td class="num" :class="itemDetail.item.sign < 0 ? 'expense' : 'income'">
+                <b>{{ itemDetail.item.sign < 0 ? '−' : '' }}{{ fmt(h.amount) }}</b>
+              </td>
+              <td class="muted">{{ h.note || '—' }}</td>
+              <td class="c-op muted hide-mobile">{{ h.op_user || '—' }}</td>
+              <td class="c-act"><button class="btn btn-sm btn-danger" @click="delItemHistory(h)">删</button></td>
+            </tr>
+            <tr v-if="!itemDetail.rows.length">
+              <td colspan="5" class="muted" style="text-align:center;padding:24px 0">还没有修改记录</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -424,6 +523,16 @@ const monthsDesc = computed(() => [...(data.value.months || [])].reverse());
 .his-tbl .c-op { width: 90px; }
 .his-tbl .c-act { width: 50px; text-align: right; }
 .his-tbl .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* 资金明细弹窗（仿分类钱包小钱包） */
+.detail-sum { display: flex; gap: 28px; flex-wrap: wrap; padding: 4px 0 8px; }
+.detail-sum .big { font-size: 22px; font-weight: 800; margin-top: 2px; }
+.add-box { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; padding: 12px; background: var(--surface-2); border-radius: 10px; margin-top: 6px; }
+.add-box .field { display: flex; flex-direction: column; gap: 4px; }
+.txn-tbl .c-d { width: 110px; white-space: nowrap; }
+.txn-tbl .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.txn-tbl .c-op { width: 90px; }
+.txn-tbl .c-act { width: 50px; text-align: right; }
 
 .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 0 14px; border-bottom: 1px solid var(--border); margin-bottom: 16px; flex-wrap: wrap; }
 .sw { flex: 1; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); border-radius: 10px; padding: 10px; font-size: 14px; cursor: pointer; }

@@ -241,7 +241,7 @@ function close() {
       <div class="row">
         <label class="field" style="flex: 1">
           <span>日期</span>
-          <input class="input" type="text" v-model="form.flow_time" @input="onDateInput" placeholder="20260813 或 2026-08-13" />
+          <input class="input" type="date" v-model="form.flow_time" />
         </label>
         <label class="field" style="flex: 1">
           <span>支付方式</span>
@@ -303,7 +303,7 @@ function close() {
 .amount { font-size: 22px; font-weight: 700; }
 .amount.expense { color: var(--expense); }
 .amount.income { color: var(--income); }
-.modal { max-width: min(1600px, 96vw); }
+.modal { max-width: min(1100px, 96vw); }
 .cat-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
 .cat {
   display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 6px;

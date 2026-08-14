@@ -257,7 +257,7 @@ const maxAbs = computed(() => Math.max(1, ...rows.value.map((r) => Math.abs(r.ba
 
     <!-- 月总结分析弹窗（区域 1~7） -->
     <div v-if="showMonth" class="modal-mask" @click.self="showMonth = false">
-      <div class="modal month-modal" style="max-width:1600px">
+      <div class="modal month-modal" style="max-width:1100px">
         <div class="modal-head">
           <h3 class="modal-title" style="margin:0">{{ md.year }} 年 {{ md.month }} 月 · 账单总结分析</h3>
           <button class="btn" @click="showMonth = false">关闭</button>
