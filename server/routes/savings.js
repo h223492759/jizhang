@@ -275,6 +275,7 @@ r.post(
       for (const it of getItems(req.bookId)) byId[it.id] = it;
       let asset = 0,
         liability = 0;
+      const itemUpdates = [];
       for (const it of list) {
         const amt = Number(it.amount);
         if (!(amt >= 0)) continue;
@@ -283,8 +284,12 @@ r.post(
         if (!activeOn(dbItem, ymd)) continue; // 该日已失效/未生效
         if (Number(dbItem.sign) < 0) liability += amt;
         else asset += amt;
+        itemUpdates.push({ id: dbItem.id, amt });
       }
       const ym = ymd.slice(0, 7);
+      const histStmt = db.prepare(
+        "INSERT INTO savings_item_history (item_id, book_id, ymd, amount, note, user_id, op_user) VALUES (?,?,?,?,?,?,?)"
+      );
       const tx = db.transaction(() => {
         // 先清掉该月自动生成的快照（如有），避免与 manual 快照并存导致取最大值时取错
         db.prepare(
@@ -297,20 +302,29 @@ r.post(
              asset=excluded.asset, liability=excluded.liability, net=excluded.net,
              user_id=excluded.user_id, op_user=excluded.op_user, updated_at=excluded.updated_at, manual=1`
         ).run(req.bookId, ymd, asset, liability, asset - liability, req.user?.id || 0, req.user?.nickname || "");
+        // 每条生效细则各记一条历史（与「直接修改当前金额」一致，便于明细弹窗查看）
+        for (const u of itemUpdates) {
+          histStmt.run(u.id, req.bookId, ymd, u.amt, "批量更新·回填历史", req.user?.id || 0, req.user?.nickname || "");
+        }
       });
       tx();
       res.json({ ok: true, asset, liability, net: asset - liability, manual: true });
       return;
     }
-    // 当前余额更新
+    // 当前余额更新：等同对每条生效细则执行「直接修改当前金额」，并各记一条历史
+    const ymdNow = today();
     const stmt = db.prepare(
       `UPDATE savings_items SET amount=?, updated_at=datetime('now','localtime') WHERE id=? AND book_id=?`
+    );
+    const histStmt = db.prepare(
+      "INSERT INTO savings_item_history (item_id, book_id, ymd, amount, note, user_id, op_user) VALUES (?,?,?,?,?,?,?)"
     );
     const tx = db.transaction(() => {
       for (const it of list) {
         const amt = Number(it.amount);
         if (!(amt >= 0)) continue;
         stmt.run(amt, Number(it.id), req.bookId);
+        histStmt.run(Number(it.id), req.bookId, ymdNow, amt, "批量更新·更新资产与负债", req.user?.id || 0, req.user?.nickname || "");
       }
     });
     tx();

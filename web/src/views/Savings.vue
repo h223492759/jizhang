@@ -257,25 +257,22 @@ const yAxisMin = computed(() => {
   return Math.floor(minV / step) * step;
 });
 
-// 历史记录行内编辑（修改某月净资产快照的资产/负债）
-const editingYmd = ref("");
-const editHist = ref({ asset: "", liability: "" });
-function startEditHistory(m) {
-  editingYmd.value = m.ymd;
-  editHist.value = { asset: String(m.asset), liability: String(m.liability || 0) };
+// 历史记录弹窗编辑（修改某月净资产快照的资产/负债）
+const showHistEdit = ref(false);
+const histEdit = ref({ ymd: "", month: "", asset: "", liability: "" });
+function openHistEdit(m) {
+  histEdit.value = { ymd: m.ymd, month: m.month, asset: String(m.asset), liability: String(m.liability || 0) };
+  showHistEdit.value = true;
 }
-function cancelEditHistory() {
-  editingYmd.value = "";
-}
-async function saveEditHistory(m) {
-  const asset = evalExpr(editHist.value.asset || "0");
-  const liability = evalExpr(editHist.value.liability || "0");
+async function saveHistEdit() {
+  const asset = evalExpr(histEdit.value.asset || "0");
+  const liability = evalExpr(histEdit.value.liability || "0");
   if (!isFinite(asset) || asset < 0) return toast("资产金额请填正数");
   if (!isFinite(liability) || liability < 0) return toast("负债金额请填正数");
   try {
-    await api.put(`/savings/history/${m.ymd}`, { asset, liability });
+    await api.put(`/savings/history/${histEdit.value.ymd}`, { asset, liability });
     toast("已修改该月历史");
-    editingYmd.value = "";
+    showHistEdit.value = false;
     load();
   } catch (e) { toast(e.message); }
 }
@@ -389,7 +386,7 @@ async function saveEditHistory(m) {
 
     <!-- 历史月表格 -->
     <div class="card" style="margin-top:16px" v-if="data.months.length">
-      <div class="section-title">历史记录（点「改」可修正某月资产/负债）</div>
+      <div class="section-title">历史记录（点「改」可在弹窗中修正某月资产/负债）</div>
       <table class="tbl his-tbl">
         <thead>
           <tr>
@@ -407,33 +404,17 @@ async function saveEditHistory(m) {
           <tr v-for="m in monthsDesc" :key="m.ymd">
             <td class="c-m"><b>{{ m.month }}</b></td>
             <td class="c-d muted hide-mobile">{{ m.ymd }}</td>
-            <td class="num income" v-if="editingYmd !== m.ymd">{{ fmt(m.asset) }}</td>
-            <td class="num income" v-else><input class="input cell-input" v-model="editHist.asset" style="width:120px;text-align:right" /></td>
-            <td class="num expense" v-if="editingYmd !== m.ymd">{{ m.liability ? fmt(m.liability) : '—' }}</td>
-            <td class="num expense" v-else><input class="input cell-input" v-model="editHist.liability" style="width:120px;text-align:right" /></td>
-            <td class="num" v-if="editingYmd !== m.ymd">
-              <b :class="m.net >= 0 ? 'income' : 'expense'">{{ fmt(m.net) }}</b>
-            </td>
-            <td class="num" v-else>
-              <b :class="(evalExpr(editHist.asset||'0') - evalExpr(editHist.liability||'0')) >= 0 ? 'income' : 'expense'">
-                {{ fmt(evalExpr(editHist.asset||'0') - evalExpr(editHist.liability||'0')) }}
-              </b>
-            </td>
+            <td class="num income">{{ fmt(m.asset) }}</td>
+            <td class="num expense">{{ m.liability ? fmt(m.liability) : '—' }}</td>
+            <td class="num"><b :class="m.net >= 0 ? 'income' : 'expense'">{{ fmt(m.net) }}</b></td>
             <td class="num" v-if="target">
               <span v-if="target - m.net > 0" class="muted">差 {{ fmt(target - m.net) }}</span>
               <span v-else class="income">超 {{ fmt(m.net - target) }}</span>
             </td>
-            <td class="c-op muted hide-mobile" v-if="editingYmd !== m.ymd">{{ m.op_user || '—' }}</td>
-            <td class="c-op muted hide-mobile" v-else>—</td>
+            <td class="c-op muted hide-mobile">{{ m.op_user || '—' }}</td>
             <td class="c-act">
-              <template v-if="editingYmd === m.ymd">
-                <button class="btn btn-sm btn-primary" @click="saveEditHistory(m)">存</button>
-                <button class="btn btn-sm" @click="cancelEditHistory">取</button>
-              </template>
-              <template v-else>
-                <button class="btn btn-sm" @click="startEditHistory(m)">改</button>
-                <button class="btn btn-sm btn-danger" @click="delHistory(m)">删</button>
-              </template>
+              <button class="btn btn-sm" @click="openHistEdit(m)">改</button>
+              <button class="btn btn-sm btn-danger" @click="delHistory(m)">删</button>
             </td>
           </tr>
         </tbody>
@@ -609,6 +590,37 @@ async function saveEditHistory(m) {
         </div>
       </div>
     </div>
+
+    <!-- 修改某月历史（资产/负债）弹窗 -->
+    <div v-if="showHistEdit" class="modal-mask" @click.self="showHistEdit = false">
+      <div class="modal" style="max-width:460px">
+        <div class="modal-head">
+          <h3 class="modal-title" style="margin:0">修改 {{ histEdit.month }} 的历史净资产</h3>
+          <div class="row" style="gap:8px">
+            <button class="btn" @click="showHistEdit = false">取消</button>
+            <button class="btn btn-primary" @click="saveHistEdit">保存</button>
+          </div>
+        </div>
+        <label class="field">
+          <span>资产（该月总资产，填正数）</span>
+          <input class="input" v-model="histEdit.asset" placeholder="如 510000" />
+          <span class="muted small" v-if="isFinite(evalExpr(histEdit.asset))">= {{ fmt(evalExpr(histEdit.asset)) }}</span>
+        </label>
+        <label class="field">
+          <span>负债（该月总负债，填正数）</span>
+          <input class="input" v-model="histEdit.liability" placeholder="如 40000" />
+          <span class="muted small" v-if="isFinite(evalExpr(histEdit.liability))">= {{ fmt(evalExpr(histEdit.liability)) }}</span>
+        </label>
+        <div class="preview-box" style="margin-top:4px">
+          <div class="prev-row">
+            <span>净资产</span>
+            <b :class="(evalExpr(histEdit.asset||'0') - evalExpr(histEdit.liability||'0')) >= 0 ? 'income' : 'expense'">
+              {{ fmt(evalExpr(histEdit.asset||'0') - evalExpr(histEdit.liability||'0')) }}
+            </b>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -638,7 +650,6 @@ async function saveEditHistory(m) {
 .his-tbl .c-d { width: 110px; white-space: nowrap; }
 .his-tbl .c-op { width: 90px; }
 .his-tbl .c-act { width: 104px; text-align: right; white-space: nowrap; }
-.his-tbl .cell-input { height: 30px; padding: 2px 6px; font-size: 13px; }
 .his-tbl .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 /* 资金明细弹窗（仿分类钱包小钱包） */
