@@ -25,6 +25,10 @@ onMounted(load);
 function fmt(n) {
   return "¥" + Number(n || 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+// 细则的有效金额（带正负）：资产(sign=1)填负数=该期转负债，负债(sign=-1)填负数=该期转资产
+function signedAmount(it) {
+  return (Number(it.sign) < 0 ? -1 : 1) * (Number(it.amount) || 0);
+}
 // 大额简写：1000000 → 100万，便于目标展示
 function wan(n) {
   const v = Number(n || 0);
@@ -94,7 +98,7 @@ function openEditItem(it) {
 }
 async function saveItem() {
   const amt = evalExpr(itemForm.value.amount || "0");
-  if (!isFinite(amt) || amt < 0) return toast("金额请填正数，正负用「计入方式」选择");
+  if (!isFinite(amt)) return toast("金额格式不对");
   if (!itemForm.value.name.trim()) return toast("请填写名称");
   if (asOfError.value || asOfEndError.value) return toast("生效/失效日期格式不对，请按 8 位（如 20260814）或 2026-08-14 输入");
   const payload = { name: itemForm.value.name.trim(), amount: amt, sign: itemForm.value.sign, note: itemForm.value.note, as_of: itemForm.value.as_of, as_of_end: itemForm.value.as_of_end };
@@ -129,7 +133,7 @@ async function openItemDetail(it) {
 }
 async function saveItemAmount() {
   const amt = evalExpr(itemAdjForm.value.amount || "0");
-  if (!isFinite(amt) || amt < 0) return toast("金额请填正数");
+  if (!isFinite(amt)) return toast("金额格式不对");
   try {
     const { data: d } = await api.post(`/savings/items/${itemDetail.value.item.id}/set-amount`, {
       amount: amt,
@@ -149,6 +153,30 @@ async function delItemHistory(h) {
   } catch (e) { toast(e.message); }
 }
 
+// 历史资金记录单条「改」：行内编辑金额 + 备注
+const editingHist = ref(null);
+const histEditForm = ref({ amount: "", note: "" });
+function startEditHist(h) {
+  editingHist.value = h.id;
+  histEditForm.value = { amount: String(h.amount), note: h.note || "" };
+}
+function cancelEditHist() {
+  editingHist.value = null;
+}
+async function saveEditHist(h) {
+  const amt = evalExpr(histEditForm.value.amount || "0");
+  if (!isFinite(amt)) return toast("金额格式不对");
+  try {
+    await api.put(`/savings/items/${itemDetail.value.item.id}/history/${h.id}`, {
+      amount: amt,
+      note: histEditForm.value.note.trim(),
+    });
+    toast("已修改该条历史");
+    editingHist.value = null;
+    await openItemDetail(itemDetail.value.item); // 刷新明细与历史
+  } catch (e) { toast(e.message); }
+}
+
 // ---------------- 更新资产和负债（批量填金额） ----------------
 const showUpdate = ref(false);
 const updForm = ref([]);
@@ -165,14 +193,15 @@ const updPreview = computed(() => {
   for (const it of updForm.value) {
     const v = evalExpr(it.amount || "0");
     if (!isFinite(v)) continue;
-    if (it.sign < 0) liability += v; else asset += v;
+    const val = (Number(it.sign) < 0 ? -1 : 1) * v;
+    if (val >= 0) asset += val; else liability += -val;
   }
   return { asset, liability, net: asset - liability };
 });
 async function saveUpdate() {
   const items = updForm.value
     .map((i) => ({ id: i.id, amount: evalExpr(i.amount || "0") }))
-    .filter((i) => isFinite(i.amount) && i.amount >= 0);
+    .filter((i) => isFinite(i.amount));
   if (!items.length) return toast("没有可保存的金额");
   try {
     await api.post("/savings/items/bulk", { items, ymd: updDate.value });
@@ -277,14 +306,15 @@ const histPreview = computed(() => {
   for (const it of histEdit.value.form) {
     const v = evalExpr(it.amount || "0");
     if (!isFinite(v)) continue;
-    if (it.sign < 0) liability += v; else asset += v;
+    const val = (Number(it.sign) < 0 ? -1 : 1) * v;
+    if (val >= 0) asset += val; else liability += -val;
   }
   return { asset, liability, net: asset - liability };
 });
 async function saveHistEdit() {
   const items = histEdit.value.form
     .map((i) => ({ id: i.id, amount: evalExpr(i.amount || "0") }))
-    .filter((i) => isFinite(i.amount) && i.amount >= 0);
+    .filter((i) => isFinite(i.amount));
   if (!items.length) return toast("没有可保存的金额");
   try {
     await api.post("/savings/items/bulk", { items, ymd: histEdit.value.ymd, mode: "history" });
@@ -343,8 +373,8 @@ async function saveHistEdit() {
           <b>{{ it.name }}</b>
           <span class="tag" :class="it.sign < 0 ? 'tag-neg' : 'tag-pos'">{{ it.sign < 0 ? '负债 −' : '资产 +' }}</span>
         </div>
-        <div class="item-amt" :class="it.sign < 0 ? 'expense' : ''">
-          {{ it.sign < 0 ? '−' : '' }}{{ fmt(it.amount) }}
+        <div class="item-amt" :class="signedAmount(it) < 0 ? 'expense' : 'income'">
+          {{ fmt(signedAmount(it)) }}
         </div>
         <div class="muted small" v-if="it.note">{{ it.note }}</div>
         <div class="item-foot">
@@ -372,8 +402,8 @@ async function saveHistEdit() {
             <b>{{ it.name }}</b>
             <span class="tag tag-expired">已失效</span>
           </div>
-          <div class="item-amt" :class="it.sign < 0 ? 'expense' : ''">
-            {{ it.sign < 0 ? '−' : '' }}{{ fmt(it.amount) }}
+          <div class="item-amt" :class="signedAmount(it) < 0 ? 'expense' : 'income'">
+            {{ fmt(signedAmount(it)) }}
           </div>
           <div class="muted small" v-if="it.note">{{ it.note }}</div>
           <div class="item-foot">
@@ -482,10 +512,10 @@ async function saveHistEdit() {
           </div>
         </div>
         <label class="field">
-          <span>金额（填正数，正负由上面选择）</span>
-          <input class="input" v-model="itemForm.amount" placeholder="如 50000 或 30000+20000" />
+          <span>金额（可填负数：负债细则填负数＝该期按资产算，资产细则填负数＝该期按负债算）</span>
+          <input class="input" v-model="itemForm.amount" placeholder="如 50000、-5000 或 30000+20000" />
           <span class="muted small" v-if="isFinite(evalExpr(itemForm.amount))">
-            计入 {{ itemForm.sign < 0 ? '−' : '+' }}{{ fmt(evalExpr(itemForm.amount)) }}
+            计入 {{ fmt((itemForm.sign < 0 ? -1 : 1) * evalExpr(itemForm.amount)) }}
           </span>
         </label>
         <label class="field">
@@ -519,8 +549,8 @@ async function saveHistEdit() {
         <div class="detail-sum">
           <div>
             <div class="muted small">当前金额</div>
-            <div class="big" :class="itemDetail.item.sign < 0 ? 'expense' : 'income'">
-              {{ itemDetail.item.sign < 0 ? '−' : '' }}{{ fmt(itemDetail.item.amount) }}
+            <div class="big" :class="signedAmount(itemDetail.item) < 0 ? 'expense' : 'income'">
+              {{ fmt(signedAmount(itemDetail.item)) }}
             </div>
           </div>
         </div>
@@ -529,7 +559,7 @@ async function saveHistEdit() {
         <div class="add-box">
           <div class="field" style="margin:0">
             <span>直接修改当前金额</span>
-            <input class="input" v-model="itemAdjForm.amount" placeholder="如 50000" style="width:160px" />
+            <input class="input" v-model="itemAdjForm.amount" placeholder="如 50000 或 -5000" style="width:160px" />
           </div>
           <div class="field" style="margin:0">
             <span>备注（可选）</span>
@@ -553,12 +583,30 @@ async function saveHistEdit() {
           <tbody>
             <tr v-for="h in itemDetail.rows" :key="h.id">
               <td class="c-d"><b>{{ h.ymd }}</b></td>
-              <td class="num" :class="itemDetail.item.sign < 0 ? 'expense' : 'income'">
-                <b>{{ itemDetail.item.sign < 0 ? '−' : '' }}{{ fmt(h.amount) }}</b>
-              </td>
-              <td class="muted">{{ h.note || '—' }}</td>
-              <td class="c-op muted hide-mobile">{{ h.op_user || '—' }}</td>
-              <td class="c-act"><button class="btn btn-sm btn-danger" @click="delItemHistory(h)">删</button></td>
+              <template v-if="editingHist === h.id">
+                <td class="num">
+                  <input class="input" v-model="histEditForm.amount" style="width:110px;text-align:right" />
+                </td>
+                <td>
+                  <input class="input" v-model="histEditForm.note" placeholder="备注" style="width:100%" />
+                </td>
+                <td class="c-op muted hide-mobile">{{ h.op_user || '—' }}</td>
+                <td class="c-act">
+                  <button class="btn btn-sm btn-primary" @click="saveEditHist(h)">保存</button>
+                  <button class="btn btn-sm" @click="cancelEditHist">取消</button>
+                </td>
+              </template>
+              <template v-else>
+                <td class="num" :class="signedAmount({ sign: itemDetail.item.sign, amount: h.amount }) < 0 ? 'expense' : 'income'">
+                  <b>{{ fmt(signedAmount({ sign: itemDetail.item.sign, amount: h.amount })) }}</b>
+                </td>
+                <td class="muted">{{ h.note || '—' }}</td>
+                <td class="c-op muted hide-mobile">{{ h.op_user || '—' }}</td>
+                <td class="c-act">
+                  <button class="btn btn-sm" @click="startEditHist(h)">改</button>
+                  <button class="btn btn-sm btn-danger" @click="delItemHistory(h)">删</button>
+                </td>
+              </template>
             </tr>
             <tr v-if="!itemDetail.rows.length">
               <td colspan="5" class="muted" style="text-align:center;padding:24px 0">还没有修改记录</td>
@@ -686,7 +734,7 @@ async function saveHistEdit() {
 .txn-tbl .c-d { width: 110px; white-space: nowrap; }
 .txn-tbl .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .txn-tbl .c-op { width: 90px; }
-.txn-tbl .c-act { width: 50px; text-align: right; }
+.txn-tbl .c-act { width: 112px; text-align: right; white-space: nowrap; }
 
 .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 0 14px; border-bottom: 1px solid var(--border); margin-bottom: 16px; flex-wrap: wrap; }
 .sw { flex: 1; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); border-radius: 10px; padding: 10px; font-size: 14px; cursor: pointer; }

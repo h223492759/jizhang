@@ -63,9 +63,9 @@ function computeNet(bookId, asOfDate) {
     liability = 0;
   for (const it of items) {
     if (!activeOn(it, dateStr)) continue;
-    const v = Number(it.amount) || 0;
-    if (Number(it.sign) < 0) liability += v;
-    else asset += v;
+    const val = (Number(it.sign) < 0 ? -1 : 1) * (Number(it.amount) || 0);
+    if (val >= 0) asset += val;
+    else liability += -val;
   }
   return { asset, liability, net: asset - liability };
 }
@@ -108,10 +108,10 @@ function rebuildHistory(bookId, user) {
       let asset = 0,
         liability = 0;
       for (const it of items) {
-        const v = Number(it.amount) || 0;
         if (!activeOn(it, monthEnd.format("YYYY-MM-DD"))) continue; // 该月已失效/未生效
-        if (Number(it.sign) < 0) liability += v;
-        else asset += v;
+        const val = (Number(it.sign) < 0 ? -1 : 1) * (Number(it.amount) || 0);
+        if (val >= 0) asset += val;
+        else liability += -val;
       }
       upsert.run(bookId, ymd, asset, liability, asset - liability, user?.id || 0, user?.nickname || "");
     }
@@ -209,7 +209,7 @@ r.post(
     const name = (req.body?.name || "").toString().trim();
     if (!name) return res.status(400).json({ error: "请填写名称" });
     const amount = Number(req.body?.amount) || 0;
-    if (amount < 0) return res.status(400).json({ error: "金额请填正数，正负用「计入方式」选择" });
+    // 允许负数：负债细则某期填负数=该期转资产，资产细则填负数=该期转负债
     const sign = Number(req.body?.sign) < 0 ? -1 : 1;
     const dup = db
       .prepare("SELECT id FROM savings_items WHERE book_id=? AND lower(name)=lower(?)")
@@ -275,7 +275,7 @@ r.put(
       if (dup) return res.status(400).json({ error: `细则「${name}」已存在` });
     }
     const amount = req.body?.amount != null ? Number(req.body.amount) : cur.amount;
-    if (!(amount >= 0)) return res.status(400).json({ error: "金额请填正数，正负用「计入方式」选择" });
+    if (!isFinite(amount)) return res.status(400).json({ error: "金额格式不对" });
     const sign = req.body?.sign != null ? (Number(req.body.sign) < 0 ? -1 : 1) : cur.sign;
     const asOf = req.body?.as_of !== undefined ? normAsOf(req.body.as_of) : cur.as_of;
     const asOfEnd = req.body?.as_of_end !== undefined ? normAsOf(req.body.as_of_end) : cur.as_of_end;
@@ -309,12 +309,13 @@ r.post(
       const itemUpdates = [];
       for (const it of list) {
         const amt = Number(it.amount);
-        if (!(amt >= 0)) continue;
+        if (!isFinite(amt)) continue;
         const dbItem = byId[Number(it.id)];
         if (!dbItem) continue;
         if (!activeOn(dbItem, ymd)) continue; // 该日已失效/未生效
-        if (Number(dbItem.sign) < 0) liability += amt;
-        else asset += amt;
+        const val = (Number(dbItem.sign) < 0 ? -1 : 1) * amt;
+        if (val >= 0) asset += val;
+        else liability += -val;
         itemUpdates.push({ id: dbItem.id, amt });
       }
       const ym = ymd.slice(0, 7);
@@ -357,7 +358,7 @@ r.post(
     const tx = db.transaction(() => {
       for (const it of list) {
         const amt = Number(it.amount);
-        if (!(amt >= 0)) continue;
+        if (!isFinite(amt)) continue;
         stmt.run(amt, Number(it.id), req.bookId);
         histStmt.run(Number(it.id), req.bookId, ymdNow, amt, "批量更新·更新资产与负债", req.user?.id || 0, req.user?.nickname || "");
       }
@@ -446,7 +447,7 @@ r.post(
       .get(req.params.id, req.bookId);
     if (!cur) return res.status(404).json({ error: "细则不存在" });
     const amount = Number(req.body?.amount);
-    if (!(amount >= 0)) return res.status(400).json({ error: "金额请填正数" });
+    if (!isFinite(amount)) return res.status(400).json({ error: "金额格式不对" });
     const note = (req.body?.note || "").toString().trim();
     const ymd = today();
     db.transaction(() => {
@@ -474,6 +475,31 @@ r.delete(
       req.params.id,
       req.bookId
     );
+    res.json({ ok: true });
+  })
+);
+
+// 修改单条历史资金记录（明细弹窗里「改」某一条，只改该记录的金额/备注）
+r.put(
+  "/items/:id/history/:hid",
+  requireBook,
+  wrap((req, res) => {
+    const id = Number(req.params.id);
+    const hid = Number(req.params.hid);
+    const it = db
+      .prepare("SELECT * FROM savings_items WHERE id=? AND book_id=?")
+      .get(id, req.bookId);
+    if (!it) return res.status(404).json({ error: "细则不存在" });
+    const row = db
+      .prepare("SELECT 1 FROM savings_item_history WHERE id=? AND item_id=? AND book_id=?")
+      .get(hid, id, req.bookId);
+    if (!row) return res.status(404).json({ error: "该历史记录不存在" });
+    const amount = Number(req.body?.amount);
+    if (!isFinite(amount)) return res.status(400).json({ error: "金额格式不对" });
+    const note = (req.body?.note || "").toString().trim();
+    db.prepare(
+      "UPDATE savings_item_history SET amount=?, note=?, updated_at=datetime('now','localtime') WHERE id=?"
+    ).run(amount, note, hid);
     res.json({ ok: true });
   })
 );
