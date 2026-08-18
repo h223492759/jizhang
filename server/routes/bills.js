@@ -291,4 +291,176 @@ r.get(
   })
 );
 
+// 某年的总结分析（区域 1~7，数据为一整年）；结构与 month-detail 对齐，前端复用同一套弹窗
+r.get(
+  "/year-detail",
+  requireBook,
+  wrap((req, res) => {
+    const year = Number(req.query.year) || new Date().getFullYear();
+    const bookId = req.bookId;
+    const today = dayjs();
+    const isCurrent = year === today.year();
+    const yearEnd = dayjs(`${year}-12-31`);
+    const elapsedMonths = isCurrent ? today.month() + 1 : 12;
+
+    // 区域 1：开始记账的第多少天
+    const firstRow = db
+      .prepare("SELECT MIN(flow_time) AS f FROM flows WHERE book_id=?")
+      .get(bookId);
+    const firstFlow = firstRow?.f ? firstRow.f.slice(0, 10) : "";
+    let startDayCount = 0;
+    if (firstFlow) {
+      const endRef = isCurrent ? today : yearEnd;
+      const d0 = dayjs(firstFlow);
+      if (!endRef.isBefore(d0, "day")) {
+        startDayCount = endRef.diff(d0, "day") + 1;
+      }
+    }
+
+    // 全年收支
+    const agg = db
+      .prepare(
+        `SELECT COALESCE(SUM(CASE WHEN type='income'  THEN amount END),0) AS income,
+                COALESCE(SUM(CASE WHEN type='expense' THEN amount END),0) AS expense
+         FROM flows WHERE book_id=? AND substr(flow_time,1,4)=?`
+      )
+      .get(bookId, String(year));
+    const yearIncome = Number(agg.income) || 0;
+    const yearExpense = Number(agg.expense) || 0;
+    const yearBalance = yearIncome - yearExpense;
+
+    // 上年净收支
+    const prevYear = year - 1;
+    const before = db
+      .prepare(
+        `SELECT COALESCE(SUM(CASE WHEN type='income'  THEN amount END),0) AS income,
+                COALESCE(SUM(CASE WHEN type='expense' THEN amount END),0) AS expense
+         FROM flows WHERE book_id=? AND substr(flow_time,1,4)=?`
+      )
+      .get(bookId, String(prevYear));
+    const lastYearBalance =
+      (Number(before.income) || 0) - (Number(before.expense) || 0);
+
+    // 区域 3：全年支出分类 + 最高 3 笔支出
+    const expenseByCat = db
+      .prepare(
+        `SELECT category, COALESCE(SUM(amount),0) AS amount
+         FROM flows WHERE book_id=? AND type='expense' AND substr(flow_time,1,4)=?
+         GROUP BY category ORDER BY amount DESC`
+      )
+      .all(bookId, String(year))
+      .map((x) => ({
+        category: x.category,
+        amount: Number(x.amount),
+        percent: yearExpense > 0 ? Math.round((Number(x.amount) / yearExpense) * 1000) / 10 : 0,
+      }));
+    const topExpenses = db
+      .prepare(
+        `SELECT id, flow_time, amount, category, description, payment_method
+         FROM flows WHERE book_id=? AND type='expense' AND substr(flow_time,1,4)=?
+         ORDER BY amount DESC, id DESC LIMIT 3`
+      )
+      .all(bookId, String(year));
+
+    // 区域 4：单月最高支出 + 月均支出
+    const monthRows = db
+      .prepare(
+        `SELECT substr(flow_time,1,7) m, COALESCE(SUM(amount),0) AS s
+         FROM flows WHERE book_id=? AND type='expense' AND substr(flow_time,1,4)=?
+         GROUP BY m ORDER BY s DESC`
+      )
+      .all(bookId, String(year));
+    const highestMonth = monthRows[0]
+      ? { date: monthRows[0].m, amount: Number(monthRows[0].s) }
+      : { date: "", amount: 0 };
+    const monthlyAvgExpense = elapsedMonths > 0 ? yearExpense / elapsedMonths : 0;
+
+    // 区域 5 / 7：12 个月对比
+    const monthAgg = (m) => {
+      const a = db
+        .prepare(
+          `SELECT COALESCE(SUM(CASE WHEN type='income'  THEN amount END),0) AS income,
+                  COALESCE(SUM(CASE WHEN type='expense' THEN amount END),0) AS expense
+           FROM flows WHERE book_id=? AND substr(flow_time,1,7)=?`
+        )
+        .get(bookId, m);
+      return {
+        ym: m,
+        label: String(Number(m.slice(5, 7))),
+        income: Number(a.income) || 0,
+        expense: Number(a.expense) || 0,
+      };
+    };
+    const monthsAll = [];
+    for (let m = 1; m <= 12; m++) {
+      monthsAll.push(monthAgg(`${year}-${String(m).padStart(2, "0")}`));
+    }
+    const expenseCompare = monthsAll;
+    const incomeCompare = monthsAll;
+
+    // 对比上年：分类变化 top3
+    const catSums = (y, type) => {
+      const rows = db
+        .prepare(
+          `SELECT category, COALESCE(SUM(amount),0) AS s
+           FROM flows WHERE book_id=? AND type=? AND substr(flow_time,1,4)=?
+           GROUP BY category`
+        )
+        .all(bookId, type, String(y));
+      const map = {};
+      for (const x of rows) map[x.category] = Number(x.s);
+      return map;
+    };
+    const diffTop = (type) => {
+      const prev = catSums(prevYear, type);
+      const cur = catSums(year, type);
+      const names = new Set([...Object.keys(prev), ...Object.keys(cur)]);
+      const list = [];
+      for (const c of names) {
+        const delta = (cur[c] || 0) - (prev[c] || 0);
+        if (Math.abs(delta) < 0.005) continue;
+        list.push({
+          category: c,
+          prev: prev[c] || 0,
+          cur: cur[c] || 0,
+          delta: Math.round(delta * 100) / 100,
+          dir: delta > 0 ? "up" : "down",
+        });
+      }
+      list.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+      return list.slice(0, 3);
+    };
+
+    // 区域 6：全年最高 3 笔收入
+    const topIncomes = db
+      .prepare(
+        `SELECT id, flow_time, amount, category, description, payment_method
+         FROM flows WHERE book_id=? AND type='income' AND substr(flow_time,1,4)=?
+         ORDER BY amount DESC, id DESC LIMIT 3`
+      )
+      .all(bookId, String(year));
+
+    res.json({
+      year,
+      month: 0,
+      ym: String(year),
+      isYear: true,
+      startDayCount,
+      firstFlow,
+      thisMonth: { income: yearIncome, expense: yearExpense, balance: yearBalance },
+      lastMonthBalance: lastYearBalance,
+      expenseByCategory: expenseByCat,
+      topExpenses,
+      highestDayExpense: highestMonth,
+      dailyAvgExpense: monthlyAvgExpense,
+      expenseCompare,
+      expenseChangeVsPrev: diffTop("expense"),
+      monthIncome: yearIncome,
+      topIncomes,
+      incomeCompare,
+      incomeChangeVsPrev: diffTop("income"),
+    });
+  })
+);
+
 export default r;

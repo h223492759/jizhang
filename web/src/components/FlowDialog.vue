@@ -54,13 +54,19 @@ const isPinned = computed(() =>
   sug.value.presets.some((p) => p.name === form.value.description)
 );
 
-// 名称候选合并：常用(★) + 高频，去重后在名称输入框上方单行展示，最多 2 行（约 12 个），超出点「更多」展开
+// 名称候选合并：常用(★) 始终全局置顶显示（不受当前分类影响），高频/最近按当前分类过滤
 const sugExpanded = ref(false);
 const MAX_CHIPS = 12;
 const sugChips = computed(() => {
+  const cat = form.value.category;
+  const filter = (arr) => !cat ? arr : arr.filter((p) => !p.category || p.category === cat);
   const base = [];
-  for (const p of filteredSug.value.presets || []) base.push({ name: p.name, preset: true, id: p.id });
-  for (const f of filteredSug.value.frequent || []) base.push({ name: f.name, preset: false, count: f.count });
+  for (const p of sug.value.presets || []) base.push({ name: p.name, preset: true, id: p.id });
+  for (const f of filter(sug.value.frequent || [])) base.push({ name: f.name, preset: false, count: f.count });
+  const seen = new Set(base.map((b) => b.name));
+  for (const f of filter(sug.value.recent || [])) {
+    if (!seen.has(f.name)) { seen.add(f.name); base.push({ name: f.name, preset: false, count: f.count }); }
+  }
   return { list: sugExpanded.value ? base : base.slice(0, MAX_CHIPS), overflow: base.length > MAX_CHIPS };
 });
 
@@ -263,9 +269,8 @@ function close() {
           </a>
         </span>
 
-        <!-- 名称候选（常用★ + 高频），显示在输入框上方，点一下即填入名称 -->
+        <!-- 名称候选（常用★ 全局置顶 + 高频），显示在输入框上方，点一下即填入名称 -->
         <div class="sug" v-if="sugChips.list.length">
-          <div class="muted small" v-if="form.category">按分类「{{ form.category }}」筛选</div>
           <div class="sug-line comb">
             <button
               v-for="(c, i) in sugChips.list" :key="i"

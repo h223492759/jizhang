@@ -88,15 +88,17 @@ const chartOpt = computed(() => ({
   ],
 }));
 
-// ---------------- 月总结分析弹窗（区域 1~7） ----------------
+// ---------------- 月/年总结分析弹窗（区域 1~7） ----------------
 const showMonth = ref(false);
 const monthDetail = ref(null);
 const monthLoading = ref(false);
 const showAllExp = ref(false);
+const detailIsYear = ref(false);
 async function openMonth(ym) {
   if (!ym) return;
   monthLoading.value = true;
   showMonth.value = true;
+  detailIsYear.value = false;
   try {
     const { data } = await api.get("/bills/month-detail", { params: { ym } });
     monthDetail.value = data;
@@ -108,19 +110,40 @@ async function openMonth(ym) {
   }
 }
 function onChartClick(p) {
-  if (tab.value !== "month") return;
   const row = chartRows.value[p.dataIndex];
-  if (row && row.month) openMonth(row.month);
+  if (!row) return;
+  if (tab.value === "month") {
+    if (row.month) openMonth(row.month);
+  } else {
+    if (row.year) openYear(row.year);
+  }
+}
+async function openYear(y) {
+  if (!y) return;
+  monthLoading.value = true;
+  showMonth.value = true;
+  detailIsYear.value = true;
+  try {
+    const { data } = await api.get("/bills/year-detail", { params: { year: y } });
+    monthDetail.value = data;
+    showAllExp.value = false;
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    monthLoading.value = false;
+  }
 }
 function mdFmt(n) {
   return "¥" + Number(n || 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 const md = computed(() => monthDetail.value || {});
-// 区域 2：上月结余 / 月收入 / 月支出 / 月结余 横向柱状
+// 区域 2：上月结余 / 月收入 / 月支出 / 月结余（年视图为 上年结余/年收入/年支出/年结余）横向柱状
 const balBarOpt = computed(() => {
   const d = md.value;
   if (!d.thisMonth) return null;
-  const order = ["上月结余", "月收入", "月支出", "月结余"];
+  const order = detailIsYear.value
+    ? ["上年结余", "年收入", "年支出", "年结余"]
+    : ["上月结余", "月收入", "月支出", "月结余"];
   const vals = [d.lastMonthBalance, d.thisMonth.income, d.thisMonth.expense, d.thisMonth.balance];
   const colors = ["#868e96", "#10b981", "#ef4444", "#6366f1"];
   return {
@@ -226,7 +249,7 @@ const maxAbs = computed(() => Math.max(1, ...rows.value.map((r) => Math.abs(r.ba
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in rows" :key="r.month || r.year" :class="{ zero: !r.count, clickable: tab === 'month' }" @click="tab === 'month' && openMonth(r.month)">
+          <tr v-for="r in rows" :key="r.month || r.year" :class="{ zero: !r.count, clickable: true }" @click="tab === 'month' ? openMonth(r.month) : openYear(r.year)">
             <td class="c-key"><b>{{ rowLabel(r) }}</b></td>
             <td class="num income">{{ r.income ? fmt(r.income) : '—' }}</td>
             <td class="num expense">{{ r.expense ? fmt(r.expense) : '—' }}</td>
@@ -259,14 +282,14 @@ const maxAbs = computed(() => Math.max(1, ...rows.value.map((r) => Math.abs(r.ba
     <div v-if="showMonth" class="modal-mask" @click.self="showMonth = false">
       <div class="modal month-modal" style="max-width:1100px">
         <div class="modal-head">
-          <h3 class="modal-title" style="margin:0">{{ md.year }} 年 {{ md.month }} 月 · 账单总结分析</h3>
+          <h3 class="modal-title" style="margin:0">{{ md.year }} 年<template v-if="!detailIsYear"> {{ md.month }} 月</template> · {{ detailIsYear ? '年度' : '账单' }}总结分析</h3>
           <button class="btn" @click="showMonth = false">关闭</button>
         </div>
         <div v-if="monthLoading" class="muted" style="padding:30px 0;text-align:center">加载中…</div>
         <div v-else-if="md.ym" class="md-body">
           <!-- ① -->
           <div class="region">
-            <div class="region-t">① 这是 {{ md.month }} 月账单</div>
+            <div class="region-t">① 这是 {{ md.year }} 年<template v-if="!detailIsYear"> {{ md.month }} 月</template>账单</div>
             <div class="muted">这是你开始记账的第 <b>{{ md.startDayCount }}</b> 天（自 {{ md.firstFlow }} 起）</div>
           </div>
           <!-- ② -->
@@ -300,13 +323,13 @@ const maxAbs = computed(() => Math.max(1, ...rows.value.map((r) => Math.abs(r.ba
           <!-- ④ -->
           <div class="region">
             <div class="region-t">④ 支出趋势</div>
-            <div class="kv"><span>单日最高支出</span><b class="expense">{{ mdFmt(md.highestDayExpense.amount) }}</b><span class="muted">（{{ md.highestDayExpense.date }}）</span></div>
-            <div class="kv"><span>日均支出</span><b class="expense">{{ mdFmt(md.dailyAvgExpense) }}</b></div>
-            <div class="kv"><span>本月支出</span><b class="expense">{{ mdFmt(md.thisMonth.expense) }}</b></div>
+            <div class="kv"><span>{{ detailIsYear ? '单月最高支出' : '单日最高支出' }}</span><b class="expense">{{ mdFmt(md.highestDayExpense.amount) }}</b><span class="muted">（{{ md.highestDayExpense.date }}）</span></div>
+            <div class="kv"><span>{{ detailIsYear ? '月均支出' : '日均支出' }}</span><b class="expense">{{ mdFmt(md.dailyAvgExpense) }}</b></div>
+            <div class="kv"><span>{{ detailIsYear ? '年支出' : '本月支出' }}</span><b class="expense">{{ mdFmt(md.thisMonth.expense) }}</b></div>
           </div>
           <!-- ⑤ -->
           <div class="region">
-            <div class="region-t">⑤ 月支出对比</div>
+            <div class="region-t">{{ detailIsYear ? '⑤ 各月支出对比' : '⑤ 月支出对比' }}</div>
             <EChart v-if="expenseCompareOpt" :option="expenseCompareOpt" height="200px" />
             <div class="region-t sub">对比上月 · 支出变化 Top3</div>
             <div v-if="expChanges.length" class="changes">
@@ -337,7 +360,7 @@ const maxAbs = computed(() => Math.max(1, ...rows.value.map((r) => Math.abs(r.ba
           </div>
           <!-- ⑦ -->
           <div class="region">
-            <div class="region-t">⑦ 月收入对比</div>
+            <div class="region-t">{{ detailIsYear ? '⑦ 各月收入对比' : '⑦ 月收入对比' }}</div>
             <EChart v-if="incomeCompareOpt" :option="incomeCompareOpt" height="200px" />
             <div class="region-t sub">对比上月 · 收入变化 Top3</div>
             <div v-if="incChanges.length" class="changes">
