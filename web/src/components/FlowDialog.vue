@@ -39,37 +39,30 @@ const hasSug = computed(
   () =>
     sug.value.presets.length + sug.value.frequent.length + sug.value.recent.length > 0
 );
-// 按当前所选「分类」过滤候选：餐饮里常用名与日用的互不混在一起
+// 按当前所选「分类」严格过滤候选：只保留「未绑定分类」或「当前分类」的项（不回退）
 const filteredSug = computed(() => {
   const cat = form.value.category;
   if (!cat) return sug.value;
-  const f = {
+  return {
     presets: sug.value.presets.filter((p) => !p.category || p.category === cat),
     frequent: sug.value.frequent.filter((p) => !p.category || p.category === cat),
     recent: sug.value.recent.filter((p) => !p.category || p.category === cat),
   };
-  return f.presets.length + f.frequent.length + f.recent.length ? f : sug.value;
 });
 const isPinned = computed(() =>
   sug.value.presets.some((p) => p.name === form.value.description)
 );
 
-// 名称候选合并：常用(★) 全局可见，按当前分类置顶；高频/最近按当前分类过滤
+// 名称候选合并：收藏(★) 与高频/最近都严格按当前分类过滤——
+// 只显示「未绑定分类」或「当前分类」的收藏/高频/最近，其他分类的收藏不可见；
+// 未选分类时显示全部。收藏排最前，高频/最近随后。
 const sugExpanded = ref(false);
 const MAX_CHIPS = 12;
 const sugChips = computed(() => {
   const cat = form.value.category;
   const filter = (arr) => !cat ? arr : arr.filter((p) => !p.category || p.category === cat);
-  // 当前分类的常用名称排最前，其余常用名紧随其后（不被分类筛选掉）
-  const presets = sug.value.presets || [];
-  const orderedPresets = !cat
-    ? presets
-    : [
-        ...presets.filter((p) => !p.category || p.category === cat),
-        ...presets.filter((p) => p.category && p.category !== cat),
-      ];
   const base = [];
-  for (const p of orderedPresets) base.push({ name: p.name, preset: true, id: p.id });
+  for (const p of filter(sug.value.presets || [])) base.push({ name: p.name, preset: true, id: p.id });
   for (const f of filter(sug.value.frequent || [])) base.push({ name: f.name, preset: false, count: f.count });
   const seen = new Set(base.map((b) => b.name));
   for (const f of filter(sug.value.recent || [])) {
