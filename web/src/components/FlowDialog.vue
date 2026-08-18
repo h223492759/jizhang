@@ -54,14 +54,22 @@ const isPinned = computed(() =>
   sug.value.presets.some((p) => p.name === form.value.description)
 );
 
-// 名称候选合并：常用(★) 始终全局置顶显示（不受当前分类影响），高频/最近按当前分类过滤
+// 名称候选合并：常用(★) 全局可见，按当前分类置顶；高频/最近按当前分类过滤
 const sugExpanded = ref(false);
 const MAX_CHIPS = 12;
 const sugChips = computed(() => {
   const cat = form.value.category;
   const filter = (arr) => !cat ? arr : arr.filter((p) => !p.category || p.category === cat);
+  // 当前分类的常用名称排最前，其余常用名紧随其后（不被分类筛选掉）
+  const presets = sug.value.presets || [];
+  const orderedPresets = !cat
+    ? presets
+    : [
+        ...presets.filter((p) => !p.category || p.category === cat),
+        ...presets.filter((p) => p.category && p.category !== cat),
+      ];
   const base = [];
-  for (const p of sug.value.presets || []) base.push({ name: p.name, preset: true, id: p.id });
+  for (const p of orderedPresets) base.push({ name: p.name, preset: true, id: p.id });
   for (const f of filter(sug.value.frequent || [])) base.push({ name: f.name, preset: false, count: f.count });
   const seen = new Set(base.map((b) => b.name));
   for (const f of filter(sug.value.recent || [])) {
