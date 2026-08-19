@@ -33,7 +33,7 @@ import { toast } from "../toast.js";
     <h2 class="page-title">关于</h2>
 
     <div class="card block">
-      <div class="logo">💰</div>
+      <img class="logo" src="/logo.png" alt="记账本" />
       <div class="name">{{ meta.name }}</div>
       <div class="ver" @click="copyVersion" title="点击复制版本号">
         {{ loading ? "读取中…" : meta.version }}
@@ -58,7 +58,7 @@ import { toast } from "../toast.js";
 <style scoped>
 .about { max-width: 640px; }
 .block { padding: 22px; margin-bottom: 16px; text-align: center; }
-.logo { font-size: 44px; }
+.logo { font-size: 44px; width: 76px; height: 76px; border-radius: 17px; }
 .name { font-size: 20px; font-weight: 800; margin-top: 6px; }
 .ver {
   display: inline-flex; align-items: center; gap: 8px; margin-top: 10px;

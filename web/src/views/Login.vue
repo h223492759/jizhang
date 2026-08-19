@@ -46,7 +46,7 @@ async function submit() {
   <div class="auth-wrap">
     <div class="auth-card card">
       <div class="brand">
-        <div class="logo">💰</div>
+        <img class="logo" src="/logo.png" alt="记账本" />
         <h1>记账本</h1>
         <p class="muted">简单 · 好用 · 数据自主可控</p>
       </div>
@@ -86,7 +86,7 @@ async function submit() {
 }
 .auth-card { width: 100%; max-width: 380px; padding: 30px 26px; }
 .brand { text-align: center; margin-bottom: 22px; }
-.logo { font-size: 42px; }
+.logo { font-size: 42px; width: 72px; height: 72px; border-radius: 16px; }
 .brand h1 { margin: 6px 0 2px; font-size: 24px; }
 .switch { text-align: center; margin-top: 16px; font-size: 14px; color: var(--text-2); }
 .switch a { color: var(--primary); cursor: pointer; }

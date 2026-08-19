@@ -65,7 +65,7 @@ function logout() {
   <div class="shell" v-if="ready">
     <!-- 侧边栏（桌面） -->
     <aside class="side hide-mobile">
-      <div class="side-brand">💰 <span>记账本</span></div>
+      <div class="side-brand"><img class="brand-logo" src="/logo.png" alt="" /><span>记账本</span></div>
       <nav>
         <a v-for="n in nav" :key="n.name" :class="['nav-item', { active: route.name === n.name }]" @click="go(n.name)">
           <span class="ic">{{ n.icon }}</span>{{ n.label }}
@@ -100,7 +100,7 @@ function logout() {
       <!-- 移动端抽屉 -->
       <div v-if="menuOpen" class="drawer-mask" @click="menuOpen = false">
         <div class="drawer" @click.stop>
-          <div class="side-brand">💰 <span>记账本</span></div>
+          <div class="side-brand"><img class="brand-logo" src="/logo.png" alt="" /><span>记账本</span></div>
           <a v-for="n in nav" :key="n.name" :class="['nav-item', { active: route.name === n.name }]" @click="go(n.name)">
             <span class="ic">{{ n.icon }}</span>{{ n.label }}
           </a>
@@ -130,7 +130,8 @@ function logout() {
   border-right: 1px solid var(--border); padding: 18px 12px;
   display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh;
 }
-.side-brand { font-size: 18px; font-weight: 800; padding: 6px 10px 18px; }
+.side-brand { font-size: 18px; font-weight: 800; padding: 6px 10px 18px; display: flex; align-items: center; gap: 8px; }
+.brand-logo { width: 26px; height: 26px; border-radius: 6px; }
 .nav-item {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px;
   border-radius: 10px; cursor: pointer; color: var(--text-2); font-size: 14.5px; margin-bottom: 2px;
