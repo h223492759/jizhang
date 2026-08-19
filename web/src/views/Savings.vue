@@ -119,6 +119,21 @@ async function delItem(it) {
   } catch (e) { toast(e.message); }
 }
 
+// ---------------- 资金细则调序（上移/下移，保存后按新顺序） ----------------
+async function moveItem(it, dir) {
+  const arr = [...data.value.items];
+  const idx = arr.findIndex((x) => x.id === it.id);
+  if (idx < 0) return;
+  const to = idx + dir;
+  if (to < 0 || to >= arr.length) return;
+  [arr[idx], arr[to]] = [arr[to], arr[idx]];
+  try {
+    await api.post("/savings/items/order", { ids: arr.map((x) => x.id) });
+    data.value.items = arr; // 本地直接按新顺序，避免整页重排闪烁
+    toast(dir < 0 ? "已上移" : "已下移");
+  } catch (e) { toast(e.message); }
+}
+
 // ---------------- 资金明细：直接改金额 + 历史记录（仿分类钱包小钱包） ----------------
 const showItemDetail = ref(false);
 const itemDetail = ref({ item: {}, rows: [] });
@@ -261,7 +276,23 @@ const chartOpt = computed(() => {
   };
 });
 
-const cur = computed(() => data.value.current);
+// 第一区域：优先显示最新月份的历史快照（与柱状图一致），无历史则用实时合计
+const cur = computed(() => {
+  const ms = data.value.months || [];
+  if (ms.length) {
+    const latest = ms[ms.length - 1]; // 后端 months 按 ymd 升序，最后一条=最新月
+    const net = Number(latest.net);
+    const target = Number(data.value.goal.target) || 0;
+    return {
+      asset: Number(latest.asset),
+      liability: Number(latest.liability),
+      net,
+      percent: target > 0 ? Math.round((net / target) * 100) : 0,
+      remaining: target - net,
+    };
+  }
+  return data.value.current;
+});
 const target = computed(() => Number(data.value.goal.target) || 0);
 const pctClamped = computed(() => Math.max(0, Math.min(100, cur.value.percent)));
 // 历史表倒序展示（最近的月在上面）
@@ -383,6 +414,8 @@ async function saveHistEdit() {
             {{ it.as_of_end ? ' · 失效 ' + it.as_of_end : '' }}
           </span>
           <span>
+            <button class="btn btn-sm" title="上移" @click.stop="moveItem(it, -1)">↑</button>
+            <button class="btn btn-sm" title="下移" @click.stop="moveItem(it, 1)">↓</button>
             <button class="btn btn-sm" @click.stop="openEditItem(it)">改</button>
             <button class="btn btn-sm btn-danger" @click.stop="delItem(it)">删</button>
           </span>

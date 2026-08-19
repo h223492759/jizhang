@@ -129,6 +129,81 @@ async function savePwd() {
     toast("密码已修改");
   } catch (e) { toast(e.message); }
 }
+
+// ---------------- 导航栏自定义（顺序 + 改名，存 localStorage） ----------------
+const ALL_NAV = [
+  { name: "dashboard", label: "首页", icon: "🏠" },
+  { name: "flows", label: "流水", icon: "📒" },
+  { name: "stats", label: "统计", icon: "📊" },
+  { name: "budgets", label: "预算", icon: "🎯" },
+  { name: "ai", label: "AI记账", icon: "✨" },
+  { name: "import", label: "导入", icon: "📥" },
+  { name: "books", label: "账本", icon: "📚" },
+  { name: "categories", label: "分类", icon: "🏷️" },
+  { name: "presets", label: "常用名称", icon: "🔖" },
+  { name: "bills", label: "账单", icon: "🧾" },
+  { name: "savings", label: "存款目标", icon: "🏁" },
+  { name: "wallets", label: "分类钱包", icon: "👝" },
+  { name: "users", label: "用户管理", icon: "👥", admin: true },
+  { name: "settings", label: "设置", icon: "⚙️" },
+];
+const NAV_ORDER_KEY = "jizhang_nav_order";
+const NAV_NAMES_KEY = "jizhang_nav_names";
+const navItems = ref([]);
+function loadNav() {
+  let order = [];
+  let names = {};
+  try {
+    order = JSON.parse(localStorage.getItem(NAV_ORDER_KEY) || "[]");
+    names = JSON.parse(localStorage.getItem(NAV_NAMES_KEY) || "{}");
+  } catch {}
+  const byName = Object.fromEntries(ALL_NAV.map((n) => [n.name, n]));
+  const ordered = order.map((nm) => byName[nm]).filter(Boolean);
+  const rest = ALL_NAV.filter((n) => !order.includes(n.name));
+  navItems.value = [...ordered, ...rest].map((n) => ({
+    ...n,
+    label: names[n.name] || n.label,
+  }));
+}
+function saveNav() {
+  localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(navItems.value.map((n) => n.name)));
+  const names = {};
+  for (const n of navItems.value) names[n.name] = n.label;
+  localStorage.setItem(NAV_NAMES_KEY, JSON.stringify(names));
+  toast("导航栏已保存（刷新后生效）");
+}
+function navMove(i, dir) {
+  const to = i + dir;
+  if (to < 0 || to >= navItems.value.length) return;
+  const arr = [...navItems.value];
+  [arr[i], arr[to]] = [arr[to], arr[i]];
+  navItems.value = arr;
+}
+function navReset() {
+  localStorage.removeItem(NAV_ORDER_KEY);
+  localStorage.removeItem(NAV_NAMES_KEY);
+  loadNav();
+  toast("已恢复默认导航");
+}
+onMounted(loadNav);
+
+// ---------------- 关于信息（合并到外观 & 关于） ----------------
+const aboutMeta = ref({ name: "记账本", version: "…" });
+async function loadAbout() {
+  try {
+    const { data } = await api.get("/meta");
+    aboutMeta.value = data;
+  } catch {
+    aboutMeta.value = { name: "记账本", version: "dev" };
+  }
+}
+async function copyVersion() {
+  try {
+    await navigator.clipboard.writeText(aboutMeta.value.version);
+    toast("已复制版本号：" + aboutMeta.value.version);
+  } catch {}
+}
+onMounted(loadAbout);
 </script>
 
 <template>
@@ -244,10 +319,40 @@ async function savePwd() {
     </div>
 
     <div class="card" style="margin-top:16px">
+      <div class="section-title">导航栏管理</div>
+      <p class="muted" style="font-size:13px;margin:0 0 10px">
+        调整左侧导航的顺序与名称（保存后刷新侧边栏生效；「用户管理」仅管理员可见）。
+      </p>
+      <div class="nav-manage">
+        <div v-for="(n, i) in navItems" :key="n.name" class="nav-manage-row">
+          <span class="nav-ic">{{ n.icon }}</span>
+          <input class="input" style="flex:1;min-width:120px" v-model.trim="n.label" placeholder="名称" />
+          <span class="muted small" style="width:88px">{{ n.name }}</span>
+          <span class="row" style="gap:4px">
+            <button class="btn btn-sm" :disabled="i === 0" @click="navMove(i, -1)">↑</button>
+            <button class="btn btn-sm" :disabled="i === navItems.length - 1" @click="navMove(i, 1)">↓</button>
+          </span>
+        </div>
+      </div>
+      <div class="row" style="align-items:center;gap:8px;margin-top:10px">
+        <button class="btn btn-primary" @click="saveNav">保存导航</button>
+        <button class="btn" @click="navReset">恢复默认</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
       <div class="section-title">外观 & 关于</div>
       <div class="row" style="align-items:center;gap:14px">
         <span class="muted">主题</span>
         <button class="btn" @click="store.toggleTheme()">{{ store.theme === "light" ? "🌙 切换到深色" : "☀️ 切换到浅色" }}</button>
+      </div>
+      <div class="row" style="align-items:center;gap:14px;margin-top:12px">
+        <span class="muted">应用</span>
+        <span class="about-app">
+          <img class="about-logo" src="/logo.png" alt="" />
+          <b>{{ aboutMeta.name }}</b>
+          <code class="about-ver" title="点击复制版本号" @click="copyVersion">{{ aboutMeta.version }}</code>
+        </span>
       </div>
       <div class="row" style="align-items:center;gap:14px;margin-top:12px">
         <span class="muted">AI 服务</span>
@@ -261,7 +366,8 @@ async function savePwd() {
       </div>
       <p class="muted" style="font-size:13px;margin-top:14px;line-height:1.7">
         记账本 · 自建版　|　数据存储于本机 SQLite，完全私有可控。<br />
-        新增账号请管理员到「用户管理」页操作；端口等配置改 docker-compose 环境变量后重启容器。
+        新增账号请管理员到「用户管理」页操作；端口等配置改 docker-compose 环境变量后重启容器。<br />
+        版本号格式 vYYMMDD-HHMM，对应镜像构建时间。
       </p>
     </div>
   </div>
@@ -271,4 +377,11 @@ async function savePwd() {
 .form-row { align-items: flex-end; flex-wrap: wrap; gap: 12px; }
 .form-row .field { margin-bottom: 0; }
 code { background: var(--surface-2); padding: 1px 6px; border-radius: 4px; font-size: 12px; }
+.nav-manage { border: 1px solid var(--border); border-radius: 10px; padding: 4px 10px; }
+.nav-manage-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--border); }
+.nav-manage-row:last-child { border-bottom: none; }
+.nav-ic { font-size: 15px; width: 22px; text-align: center; }
+.about-app { display: inline-flex; align-items: center; gap: 8px; }
+.about-logo { width: 26px; height: 26px; border-radius: 6px; }
+.about-ver { cursor: pointer; user-select: none; }
 </style>

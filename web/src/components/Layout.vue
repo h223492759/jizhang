@@ -25,11 +25,37 @@ const allNav = [
   { name: "wallets", label: "分类钱包", icon: "👝" },
   { name: "users", label: "用户管理", icon: "👥", admin: true },
   { name: "settings", label: "设置", icon: "⚙️" },
-  { name: "about", label: "关于", icon: "ℹ️" },
 ];
-// 「用户管理」只对管理员显示
+const NAV_ORDER_KEY = "jizhang_nav_order";
+const NAV_NAMES_KEY = "jizhang_nav_names";
+
+// 导航自定义（顺序 + 改名）存 localStorage：设置页里可调整
+function loadNavCustom() {
+  try {
+    const order = JSON.parse(localStorage.getItem(NAV_ORDER_KEY) || "null");
+    const names = JSON.parse(localStorage.getItem(NAV_NAMES_KEY) || "{}");
+    return { order, names };
+  } catch {
+    return { order: null, names: {} };
+  }
+}
+function applyNavCustom() {
+  const { order, names } = loadNavCustom();
+  let list = [...allNav];
+  if (Array.isArray(order) && order.length) {
+    const byName = Object.fromEntries(list.map((n) => [n.name, n]));
+    const ordered = order.map((nm) => byName[nm]).filter(Boolean);
+    const rest = list.filter((n) => !order.includes(n.name));
+    list = [...ordered, ...rest];
+  }
+  return list.map((n) => ({
+    ...n,
+    label: names[n.name] || n.label,
+  }));
+}
+// 「用户管理」只对管理员显示；顺序/名称按自定义
 const nav = computed(() =>
-  allNav.filter((n) => !n.admin || store.user?.role === "admin")
+  applyNavCustom().filter((n) => !n.admin || store.user?.role === "admin")
 );
 
 onMounted(async () => {

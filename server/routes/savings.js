@@ -228,9 +228,28 @@ r.post(
   })
 );
 
+// 资金细则调序：ids 为最新顺序，按顺序重写 sort（0 起）
+r.post(
+  "/items/order",
+  requireBook,
+  wrap((req, res) => {
+    const ids = (req.body?.ids || []).map((x) => Number(x)).filter((x) => Number.isFinite(x));
+    if (!ids.length) return res.status(400).json({ error: "ids 不能为空" });
+    db.transaction(() => {
+      ids.forEach((id, i) => {
+        db.prepare("UPDATE savings_items SET sort=? WHERE id=? AND book_id=?").run(
+          i,
+          id,
+          req.bookId
+        );
+      });
+    })();
+    res.json({ ok: true });
+  })
+);
+
 // 获取某月的逐条明细基线（用于「修改某月历史」弹窗预填）
-// 返回该月最后更新日的 ymd，以及每条当时生效细则的金额（优先取该日逐条记录，缺失则回退当前金额）
-r.get(
+// 返回该月最后更新日的 ymd，以及每条当时生效细则的金额（优先取该日逐条记录，缺失则回退当前金额）r.get(
   "/items/history-month",
   requireBook,
   wrap((req, res) => {
