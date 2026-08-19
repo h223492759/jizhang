@@ -172,6 +172,35 @@ async function pin(type, item) {
     toast(e.message);
   }
 }
+
+// 扫描本账本流水，把高频名称（出现 ≥2 次）自动加入「常用名称」（已有则跳过）
+const scanning = ref(false);
+async function scanRebuild() {
+  if (
+    !confirm(
+      "将扫描本账本所有流水，把出现 ≥2 次的名称加入「常用名称」（已存在则跳过）。\n这是一键重建，数量可能较多，是否继续？"
+    )
+  )
+    return;
+  scanning.value = true;
+  try {
+    const { data } = await api.post("/presets/scan");
+    await load();
+    alert(
+      "扫描完成：\n新增 " +
+        data.added +
+        " 个常用名称\n跳过已存在 " +
+        data.skipped +
+        " 个\n（共匹配 " +
+        data.scanned +
+        " 个）"
+    );
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    scanning.value = false;
+  }
+}
 </script>
 
 <template>
@@ -185,6 +214,12 @@ async function pin(type, item) {
         <b>点击即可收藏（★）</b>，再次点击已收藏的名称则<b>取消收藏</b>。<br />
         下方的「高频」和「最近」由系统根据你的记账习惯自动统计，无需维护，越用越准。
       </p>
+      <div class="toolbar">
+        <button class="btn btn-primary" :disabled="scanning" @click="scanRebuild">
+          {{ scanning ? "扫描中…" : "🔍 扫描流水重建常用名称" }}
+        </button>
+        <span class="muted small">把出现 ≥2 次的名称一键补进「常用名称」（已存在则跳过）</span>
+      </div>
     </div>
 
     <div class="cols">
@@ -224,7 +259,7 @@ async function pin(type, item) {
                 <em v-if="it.source === 'preset'" class="star">★</em>{{ it.name }}
                 <i v-if="it.source === 'freq'">×{{ it.count }}</i>
                 <em v-else-if="it.source === 'recent'" class="star2">☆</em>
-                <i v-if="it.source === 'preset'" class="x" @click.stop="remove(type, presetByName(type, it.name))">×</i>
+                <i v-if="it.source === 'preset'" class="x" title="删除" @click.stop="remove(type, it)">×</i>
               </button>
             </div>
           </div>
@@ -250,9 +285,10 @@ async function pin(type, item) {
 .chip em { font-style: normal; margin-left: 6px; opacity: .6; }
 .chip .star { color: var(--warning, #f59f00); margin: 0 4px 0 0; opacity: 1; }
 .chip .star2 { color: var(--text-2); }
-.chip .x { position: absolute; top: -7px; right: -7px; background: var(--expense, #ef4444); color: #fff; border-radius: 50%; width: 16px; height: 16px; line-height: 16px; text-align: center; font-size: 11px; font-style: normal; opacity: .9; }
-.chip .x:hover { opacity: 1; }
+.chip .x { position: absolute; top: -8px; right: -8px; background: var(--expense, #ef4444); color: #fff; border-radius: 50%; width: 18px; height: 18px; line-height: 18px; text-align: center; font-size: 12px; font-style: normal; opacity: 1; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+.chip .x:hover { transform: scale(1.15); }
 .chip-pin { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+.toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .small-pad { padding: 4px 0 2px; }
 .cat-groups { display: flex; flex-direction: column; gap: 14px; margin-top: 4px; }
 .cat-group { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--surface-2); }

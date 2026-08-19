@@ -111,6 +111,19 @@ function applySug(item) {
   }
 }
 
+// 直接删除某个已收藏的常用名称（chip 右上角 ×）
+async function removePreset(c) {
+  if (!c.id) return;
+  if (!confirm("删除常用名称「" + c.name + "」？（不会影响已有账单）")) return;
+  try {
+    await api.delete("/presets/" + c.id);
+    toast("已删除");
+    await loadSuggestions();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
 // 把当前名称收藏为常用消费名称
 async function togglePin() {
   const name = (form.value.description || "").trim();
@@ -273,11 +286,13 @@ function close() {
         <!-- 名称候选（常用★ 全局置顶 + 高频），显示在输入框上方，点一下即填入名称 -->
         <div class="sug" v-if="sugChips.list.length">
           <div class="sug-line comb">
-            <button
-              v-for="(c, i) in sugChips.list" :key="i"
-              class="chip" :class="{ 'chip-pin': c.preset, on: form.description === c.name }"
-              @click="applySug({ name: c.name })"
-            ><em v-if="c.preset" class="star">★</em>{{ c.name }}<i v-if="c.count">{{ c.count }}</i></button>
+            <span class="chip-wrap" v-for="(c, i) in sugChips.list" :key="i">
+              <button
+                class="chip" :class="{ 'chip-pin': c.preset, on: form.description === c.name }"
+                @click="applySug({ name: c.name })"
+              ><em v-if="c.preset" class="star">★</em>{{ c.name }}<i v-if="c.count">{{ c.count }}</i></button>
+              <i v-if="c.preset && c.id" class="x" title="删除" @click.stop="removePreset(c)">×</i>
+            </span>
             <button v-if="sugChips.overflow" class="chip more" @click="sugExpanded = !sugExpanded">{{ sugExpanded ? "收起 ▲" : "更多 ▼" }}</button>
           </div>
         </div>
@@ -327,6 +342,9 @@ function close() {
 
 .sug { margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
 .sug-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.chip-wrap { position: relative; display: inline-flex; }
+.chip-wrap .x { position: absolute; top: -7px; right: -7px; background: var(--expense, #ef4444); color: #fff; border-radius: 50%; width: 17px; height: 17px; line-height: 17px; text-align: center; font-size: 11px; font-style: normal; cursor: pointer; z-index: 2; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+.chip-wrap .x:hover { transform: scale(1.15); }
 .sug-tag {
   font-size: 11px; font-weight: 600; color: var(--text-2);
   background: var(--surface-2); border-radius: 5px; padding: 2px 6px; flex-shrink: 0;

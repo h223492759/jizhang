@@ -73,6 +73,74 @@ r.get(
   })
 );
 
+// 扫描本账本流水，把出现次数 ≥ min 的名称自动加入「常用名称」（已有则跳过）。
+// 用于：历史流水没被收集进常用名称时，一键重建。按「名称 + 类型」聚合，
+// 同一名称在支出/收入分别独立成一条常用，并带出最近一次的分类/支付方式与平均金额。
+r.post(
+  "/scan",
+  requireBook,
+  wrap((req, res) => {
+    const min = Math.max(Number(req.query.min) || 2, 2);
+    const limit = Math.min(Number(req.query.limit) || 500, 2000);
+
+    const existRows = db
+      .prepare("SELECT name, type FROM presets WHERE book_id=?")
+      .all(req.bookId);
+    const exist = new Set(existRows.map((x) => `${x.type}::${x.name}`));
+
+    const rows = db
+      .prepare(
+        `SELECT f.description AS name, f.type AS type, COUNT(*) AS count,
+                (SELECT f2.category FROM flows f2
+                   WHERE f2.book_id=f.book_id AND f2.type=f.type AND f2.description=f.description
+                   ORDER BY f2.flow_time DESC, f2.id DESC LIMIT 1) AS category,
+                (SELECT f2.payment_method FROM flows f2
+                   WHERE f2.book_id=f.book_id AND f2.type=f.type AND f2.description=f.description
+                   ORDER BY f2.flow_time DESC, f2.id DESC LIMIT 1) AS payment_method,
+                ROUND(AVG(f.amount), 2) AS avg_amount
+           FROM flows f
+          WHERE f.book_id=@bookId AND TRIM(f.description) <> ''
+          GROUP BY f.description, f.type
+         HAVING COUNT(*) >= @min
+          ORDER BY count DESC
+          LIMIT @limit`
+      )
+      .all({ bookId: req.bookId, min, limit });
+
+    let added = 0;
+    let skipped = 0;
+    for (const rw of rows) {
+      const name = (rw.name || "").trim();
+      const t = rw.type === "income" ? "income" : "expense";
+      if (!name) continue;
+      if (exist.has(`${t}::${name}`)) {
+        skipped++;
+        continue;
+      }
+      const maxSort =
+        db
+          .prepare("SELECT COALESCE(MAX(sort),0) AS s FROM presets WHERE book_id=?")
+          .get(req.bookId).s || 0;
+      db.prepare(
+        `INSERT INTO presets (book_id, name, type, category, payment_method, amount, sort)
+         VALUES (?,?,?,?,?,?,?)`
+      ).run(
+        req.bookId,
+        name,
+        t,
+        (rw.category || "").trim(),
+        (rw.payment_method || "").trim(),
+        Number(rw.avg_amount) > 0 ? Number(rw.avg_amount) : 0,
+        maxSort + 1
+      );
+      exist.add(`${t}::${name}`);
+      added++;
+    }
+
+    res.json({ added, skipped, scanned: rows.length });
+  })
+);
+
 // 新增常用消费名称
 r.post(
   "/",
