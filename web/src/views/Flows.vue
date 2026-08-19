@@ -379,6 +379,9 @@ function freqText(t) {
             {{ freqText(t) }} · 下次：{{ t.next_run }}
             <span v-if="t.payment_method"> · {{ t.payment_method }}</span>
           </div>
+          <div v-if="t.attribution" class="rc-meta" style="margin-top:4px">
+            <span class="rc-owner">归属：{{ t.attribution }}</span>
+          </div>
           <div v-if="t.note" class="rc-note muted small">备注：{{ t.note }}</div>
           <div class="row rc-actions">
             <button class="btn btn-sm" @click="editRecur(t)">编辑</button>
@@ -528,6 +531,7 @@ function freqText(t) {
 .rc-amt { margin-left: auto; font-size: 18px; font-weight: 700; }
 .rc-desc { margin-top: 6px; font-size: 14px; }
 .rc-meta { margin-top: 6px; font-size: 13px; }
+.rc-owner { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--primary-soft); color: var(--primary); font-size: 12px; }
 .rc-note { margin-top: 4px; }
 .rc-actions { margin-top: 12px; gap: 8px; }
 
