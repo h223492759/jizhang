@@ -35,12 +35,20 @@ r.post(
     const dayOfMonth = clampInt(b.day_of_month, 1, 31, 1);
     const monthOfYear = clampInt(b.month_of_year, 1, 12, 1);
     const next_run = computeNextRun(freq, dayOfMonth, monthOfYear);
+    // 离线同步幂等：客户端 uuid 已存在则直接返回原 id
+    const uuid = (b.client_uuid || "").toString().trim();
+    if (uuid) {
+      const ex = db
+        .prepare("SELECT id FROM recurring WHERE book_id=? AND client_uuid=?")
+        .get(req.bookId, uuid);
+      if (ex) return res.json({ id: ex.id, next_run: computeNextRun(freq, dayOfMonth, monthOfYear), dup: true });
+    }
     // 归属：默认按当前账号填充（共享账本双方都能看到对方的记录）
     const attr = resolveAttribution(req.bookId, req.user, b);
     const info = db
       .prepare(
-        `INSERT INTO recurring (book_id,type,category,description,amount,payment_method,freq,day_of_month,month_of_year,note,next_run,attribution_uid,attribution)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO recurring (book_id,type,category,description,amount,payment_method,freq,day_of_month,month_of_year,note,next_run,attribution_uid,attribution,client_uuid)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       )
       .run(
         req.bookId,
@@ -55,7 +63,8 @@ r.post(
         (b.note || "").trim(),
         next_run,
         attr.uid,
-        attr.text
+        attr.text,
+        uuid || null
       );
     res.json({ id: Number(info.lastInsertRowid), next_run });
   })

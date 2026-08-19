@@ -90,6 +90,14 @@ r.post(
   wrap((req, res) => {
     const name = (req.body?.name || "").toString().trim();
     if (!name) return res.status(400).json({ error: "请填写钱包名称" });
+    // 离线同步幂等：客户端 uuid 已存在则直接返回原 id
+    const uuid = (req.body?.client_uuid || "").toString().trim();
+    if (uuid) {
+      const ex = db
+        .prepare("SELECT id FROM wallets WHERE book_id=? AND client_uuid=?")
+        .get(req.bookId, uuid);
+      if (ex) return res.json({ id: ex.id, dup: true });
+    }
     const dup = db
       .prepare("SELECT id FROM wallets WHERE book_id=? AND lower(name)=lower(?)")
       .get(req.bookId, name);
@@ -101,7 +109,7 @@ r.post(
       .prepare("SELECT COALESCE(MAX(sort),0) AS m FROM wallets WHERE book_id=?")
       .get(req.bookId).m;
     const info = db
-      .prepare("INSERT INTO wallets (book_id,name,icon,target,note,sort,link_from,link_category) VALUES (?,?,?,?,?,?,?,?)")
+      .prepare("INSERT INTO wallets (book_id,name,icon,target,note,sort,link_from,link_category,client_uuid) VALUES (?,?,?,?,?,?,?,?,?)")
       .run(
         req.bookId,
         name,
@@ -110,7 +118,8 @@ r.post(
         (req.body?.note || "").toString().trim(),
         max + 1,
         linkFrom,
-        linkCategory
+        linkCategory,
+        uuid || null
       );
     res.json({ id: Number(info.lastInsertRowid) });
   })

@@ -24,6 +24,14 @@ r.post(
     if (!name || !["expense", "income"].includes(type))
       return res.status(400).json({ error: "参数错误" });
     const n = name.trim();
+    // 离线同步幂等：客户端 uuid 已存在则直接返回原 id
+    const uuid = (req.body?.client_uuid || "").toString().trim();
+    if (uuid) {
+      const ex = db
+        .prepare("SELECT id FROM categories WHERE book_id=? AND client_uuid=?")
+        .get(req.bookId, uuid);
+      if (ex) return res.json({ id: ex.id, dup: true });
+    }
     // 同类型下不允许重名（不区分大小写）
     const dup = db
       .prepare("SELECT id FROM categories WHERE book_id=? AND type=? AND lower(name)=lower(?)")
@@ -35,9 +43,9 @@ r.post(
         .get(req.bookId, type).m || 0;
     const info = db
       .prepare(
-        "INSERT INTO categories (book_id, name, type, icon, color, sort) VALUES (?,?,?,?,?,?)"
+        "INSERT INTO categories (book_id, name, type, icon, color, sort, client_uuid) VALUES (?,?,?,?,?,?,?)"
       )
-      .run(req.bookId, name.trim(), type, icon || "💰", color || "#7c8cff", maxSort + 1);
+      .run(req.bookId, name.trim(), type, icon || "💰", color || "#7c8cff", maxSort + 1, uuid || null);
     res.json({ id: info.lastInsertRowid });
   })
 );

@@ -67,6 +67,18 @@ r.get(
   })
 );
 
+// 预算设置全量（跨年，供安卓端离线镜像）
+r.get(
+  "/settings",
+  requireBook,
+  wrap((req, res) => {
+    const rows = db
+      .prepare("SELECT year, category, amount, expression FROM budgets WHERE book_id=? ORDER BY year, category")
+      .all(req.bookId);
+    res.json({ list: rows });
+  })
+);
+
 // 设置/更新预算（category 为空字符串代表年度总预算）
 // 支持单分类（{category,amount}）或多分类批量（{categories:[...],amount}）
 r.post(

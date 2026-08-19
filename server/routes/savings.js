@@ -208,6 +208,17 @@ r.post(
   wrap((req, res) => {
     const name = (req.body?.name || "").toString().trim();
     if (!name) return res.status(400).json({ error: "请填写名称" });
+    // 离线同步幂等：客户端 uuid 已存在则直接返回原 id
+    const uuid = (req.body?.client_uuid || "").toString().trim();
+    if (uuid) {
+      const ex = db
+        .prepare("SELECT id FROM savings_items WHERE book_id=? AND client_uuid=?")
+        .get(req.bookId, uuid);
+      if (ex) {
+        const snap = rebuildHistory(req.bookId, req.user);
+        return res.json({ id: Number(ex.id), dup: true, ...snap });
+      }
+    }
     const amount = Number(req.body?.amount) || 0;
     // 允许负数：负债细则某期填负数=该期转资产，资产细则填负数=该期转负债
     const sign = Number(req.body?.sign) < 0 ? -1 : 1;
@@ -220,9 +231,9 @@ r.post(
       .get(req.bookId).m;
     const info = db
       .prepare(
-        `INSERT INTO savings_items (book_id,name,sign,amount,note,sort,as_of,as_of_end) VALUES (?,?,?,?,?,?,?,?)`
+        `INSERT INTO savings_items (book_id,name,sign,amount,note,sort,as_of,as_of_end,client_uuid) VALUES (?,?,?,?,?,?,?,?,?)`
       )
-      .run(req.bookId, name, sign, amount, (req.body?.note || "").toString().trim(), max + 1, normAsOf(req.body?.as_of), normAsOf(req.body?.as_of_end));
+      .run(req.bookId, name, sign, amount, (req.body?.note || "").toString().trim(), max + 1, normAsOf(req.body?.as_of), normAsOf(req.body?.as_of_end), uuid || null);
     const snap = rebuildHistory(req.bookId, req.user);
     res.json({ id: Number(info.lastInsertRowid), ...snap });
   })

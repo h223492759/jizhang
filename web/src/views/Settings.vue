@@ -50,6 +50,16 @@ async function loadAi() {
 }
 onMounted(loadAi);
 
+// 服务器操作日志
+const opLogs = ref([]);
+async function loadOpLogs() {
+  try {
+    const { data } = await api.get("/oplogs", { params: { limit: 30 } });
+    opLogs.value = data.list || [];
+  } catch {}
+}
+onMounted(loadOpLogs);
+
 // 选服务商预设 → 自动填好地址与模型
 function applyProvider(m) {
   const p = PROVIDER_MAP[m.provider];
@@ -370,6 +380,19 @@ onMounted(loadAbout);
         版本号格式 vYYMMDD-HHMM，对应镜像构建时间。
       </p>
     </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="section-title">操作日志 <span class="muted small">（服务器最近 30 条写操作，排查/审计用）</span></div>
+      <div v-if="opLogs.length" style="max-height:260px;overflow:auto">
+        <div v-for="l in opLogs" :key="l.id" class="oplog-row">
+          <span class="oplog-method" :class="l.status >= 400 ? 'oplog-bad' : 'oplog-ok'">{{ l.method }}</span>
+          <span class="oplog-path">{{ l.path }}</span>
+          <span v-if="l.summary" class="muted oplog-summary">{{ l.summary }}</span>
+          <span class="muted oplog-time">{{ l.created_at }}</span>
+        </div>
+      </div>
+      <p v-else class="muted" style="font-size:13px">暂无操作记录</p>
+    </div>
   </div>
 </template>
 
@@ -384,4 +407,12 @@ code { background: var(--surface-2); padding: 1px 6px; border-radius: 4px; font-
 .about-app { display: inline-flex; align-items: center; gap: 8px; }
 .about-logo { width: 26px; height: 26px; border-radius: 6px; }
 .about-ver { cursor: pointer; user-select: none; }
+.oplog-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--border); font-size: 12px; }
+.oplog-row:last-child { border-bottom: none; }
+.oplog-method { flex: 0 0 auto; font-weight: 500; padding: 0 6px; border-radius: 4px; font-size: 11px; }
+.oplog-ok { background: var(--surface-2); color: var(--text-2); }
+.oplog-bad { background: var(--danger-soft, #fdecec); color: var(--danger); }
+.oplog-path { flex: 0 0 auto; font-family: var(--font-mono, monospace); }
+.oplog-summary { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oplog-time { flex: 0 0 auto; font-size: 11px; }
 </style>

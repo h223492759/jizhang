@@ -18,6 +18,8 @@ import recurringRoutes from "./routes/recurring.js";
 import billRoutes from "./routes/bills.js";
 import savingsRoutes from "./routes/savings.js";
 import walletRoutes from "./routes/wallets.js";
+import { logOp } from "./oplog.js";
+import oplogRoutes from "./oplog.js";
 import { generateDueRecurring } from "./lib/recurring.js";
 import { APP_VERSION } from "./version.js";
 
@@ -57,6 +59,9 @@ app.use("/api/recurring", recurringRoutes);
 app.use("/api/bills", billRoutes);
 app.use("/api/savings", savingsRoutes);
 app.use("/api/wallets", walletRoutes);
+// 写操作审计（响应后记录），挂所有 API 路由之后
+app.use("/api", logOp);
+app.use("/api/oplogs", oplogRoutes);
 
 // ---------- 静态前端 ----------
 const webDist = path.resolve(__dirname, "../web/dist");

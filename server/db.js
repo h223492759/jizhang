@@ -248,6 +248,37 @@ addColumnIfMissing("wallets", "link_category", "link_category TEXT NOT NULL DEFA
 addColumnIfMissing("recurring", "attribution_uid", "attribution_uid INTEGER");
 addColumnIfMissing("recurring", "attribution", "attribution TEXT NOT NULL DEFAULT ''");
 
+// 离线同步幂等键：安卓端离线补传 create 时带去重（budgets 有 UNIQUE 天然幂等，无需加）
+for (const [t, c] of [
+  ["savings_items", "client_uuid"],
+  ["wallets", "client_uuid"],
+  ["recurring", "client_uuid"],
+  ["categories", "client_uuid"],
+]) {
+  addColumnIfMissing(t, c, `${c} TEXT`);
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_${t}_uuid ON ${t}(book_id, ${c}) WHERE ${c} IS NOT NULL AND ${c} <> ''`
+  );
+}
+
+// 操作审计日志（所有写请求，响应后异步记录）
+db.exec(`
+CREATE TABLE IF NOT EXISTS op_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  book_id INTEGER,
+  user_id INTEGER,
+  method TEXT,
+  path TEXT,
+  entity TEXT,
+  entity_id INTEGER,
+  summary TEXT,
+  status INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+)`);
+db.exec(
+  "CREATE INDEX IF NOT EXISTS idx_oplogs_book ON op_logs(book_id, id DESC)"
+);
+
 // 资金细则可带一个生效日期（用于回填历史资产），空=当前
 addColumnIfMissing("savings_items", "as_of", "as_of TEXT NOT NULL DEFAULT ''");
 
