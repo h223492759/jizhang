@@ -223,6 +223,17 @@ db.exec(
 // 流水来源标记：'' = 手动记账，'ai' = AI 识别记账，'auto' = 通知自动记账
 addColumnIfMissing("flows", "source", "source TEXT NOT NULL DEFAULT ''");
 
+// 离线同步支持：updated_at 记录最后修改时间（增量拉取用）；
+// client_uuid 为客户端幂等键（离线补传去重，按 (book_id, client_uuid) 唯一）
+addColumnIfMissing("flows", "updated_at", "updated_at TEXT");
+addColumnIfMissing("flows", "client_uuid", "client_uuid TEXT");
+db.exec(
+  "CREATE INDEX IF NOT EXISTS idx_flows_updated ON flows(book_id, updated_at)"
+);
+db.exec(
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_flows_uuid ON flows(book_id, client_uuid) WHERE client_uuid IS NOT NULL AND client_uuid <> ''"
+);
+
 // 用户颜色：流水归属与统计饼图按此区分
 addColumnIfMissing("users", "color", "color TEXT NOT NULL DEFAULT '#7c8cff'");
 

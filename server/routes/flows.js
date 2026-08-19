@@ -114,6 +114,43 @@ r.get(
   })
 );
 
+// 增量同步（安卓离线优先用）：
+// - 传 since 时只返回 updated_at > since 的变更行（含新增+修改，客户端 upsert）
+// - 始终返回当前账本全部存活 id 列表，客户端据此对账删除
+// - 不传 since = 全量拉取
+r.get(
+  "/sync",
+  requireBook,
+  wrap((req, res) => {
+    const bookId = req.bookId;
+    const since = String(req.query.since || "").trim();
+    const allIds = db
+      .prepare("SELECT id FROM flows WHERE book_id=?")
+      .all(bookId)
+      .map((x) => x.id);
+    const select =
+      `SELECT f.id, f.user_id, f.type, f.amount, f.category, f.payment_method,
+              f.description, f.flow_time, f.source, f.created_at, f.updated_at,
+              f.attribution_uid, ${ATTR_SQL} AS attribution, u.color AS attribution_color
+       ${FROM_SQL} WHERE f.book_id = @bookId`;
+    let changed;
+    if (since) {
+      changed = db
+        .prepare(select + ` AND f.updated_at > @since ORDER BY f.updated_at`)
+        .all({ bookId, since });
+    } else {
+      changed = db
+        .prepare(select + ` ORDER BY f.id`)
+        .all({ bookId });
+    }
+    res.json({
+      all_ids: allIds,
+      changed,
+      server_time: db.prepare("SELECT datetime('now','localtime') AS t").get().t,
+    });
+  })
+);
+
 // 本账本可选归属人列表（前端下拉用）
 r.get(
   "/attributions",
@@ -200,10 +237,18 @@ r.post(
     const description = (b.description || "").toString().trim() || category;
     // 来源标记：'' 手动 | 'ai' AI识别 | 'auto' 通知自动记账
     const source = ["ai", "auto"].includes(b.source) ? b.source : "";
+    // 客户端幂等键：离线补传重试时按 (book_id, client_uuid) 去重，绝不产生重复流水
+    const uuid = (b.uuid || "").toString().trim();
+    if (uuid) {
+      const dup = db
+        .prepare("SELECT id FROM flows WHERE book_id=? AND client_uuid=?")
+        .get(req.bookId, uuid);
+      if (dup) return res.json({ id: dup.id, dup: true });
+    }
     const info = db
       .prepare(
-        `INSERT INTO flows (book_id, user_id, attribution, attribution_uid, type, amount, category, payment_method, description, flow_time, source)
-         VALUES (@book_id,@user_id,@attribution,@attribution_uid,@type,@amount,@category,@payment_method,@description,@flow_time,@source)`
+        `INSERT INTO flows (book_id, user_id, attribution, attribution_uid, type, amount, category, payment_method, description, flow_time, source, client_uuid, updated_at)
+         VALUES (@book_id,@user_id,@attribution,@attribution_uid,@type,@amount,@category,@payment_method,@description,@flow_time,@source,@client_uuid,datetime('now','localtime'))`
       )
       .run({
         book_id: req.bookId,
@@ -217,6 +262,7 @@ r.post(
         description,
         flow_time,
         source,
+        client_uuid: uuid || null,
       });
     res.json({ id: info.lastInsertRowid });
   })
@@ -259,8 +305,8 @@ export function insertMany(bookId, userId, defaultAttr, items, defaultUid = null
   const dedup = !!opts.dedup;
   const seen = dedup ? loadBookDedupKeys(bookId) : null;
   const stmt = db.prepare(
-    `INSERT INTO flows (book_id, user_id, attribution, attribution_uid, type, amount, category, payment_method, description, flow_time)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`
+    `INSERT INTO flows (book_id, user_id, attribution, attribution_uid, type, amount, category, payment_method, description, flow_time, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now','localtime'))`
   );
   const tx = db.transaction((rows) => {
     let imported = 0;
@@ -327,7 +373,7 @@ r.put(
         : cur.description;
 
     db.prepare(
-      `UPDATE flows SET type=?, amount=?, category=?, payment_method=?, description=?, flow_time=?, attribution=?, attribution_uid=? WHERE id=?`
+      `UPDATE flows SET type=?, amount=?, category=?, payment_method=?, description=?, flow_time=?, attribution=?, attribution_uid=?, updated_at=datetime('now','localtime') WHERE id=?`
     ).run(
       b.type === "income" ? "income" : "expense",
       Number(b.amount) || cur.amount,
