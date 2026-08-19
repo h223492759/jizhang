@@ -449,7 +449,9 @@ r.post(
     const amount = Number(req.body?.amount);
     if (!isFinite(amount)) return res.status(400).json({ error: "金额格式不对" });
     const note = (req.body?.note || "").toString().trim();
-    const ymd = today();
+    // 可选 ymd：安卓端新增记录可指定日期；不传或格式不对则记今天
+    const rawYmd = (req.body?.ymd || "").toString().trim();
+    const ymd = /^\d{4}-\d{2}-\d{2}$/.test(rawYmd) ? rawYmd : today();
     db.transaction(() => {
       db.prepare("UPDATE savings_items SET amount=?, updated_at=datetime('now','localtime') WHERE id=?").run(
         amount,
