@@ -96,7 +96,9 @@ async function remove(type, p) {
   }
 }
 
-// 按「分类」二次分组：餐饮一组、日用一组……组内合并 常用/高频/最近 并去重。
+// 按「分类」二次分组：本页只展示 preset（已收藏的常用名称），frequent/recent
+// 是自动建议，移到「记一笔」弹窗里推荐，不再混在管理页里——
+// 这样本页每一条都可以用右上角 × 删除。
 const grouped = computed(() => {
   const out = {};
   const push = (type, item, source) => {
@@ -105,12 +107,10 @@ const grouped = computed(() => {
     const g = (out[type][cat] = out[type][cat] || { category: cat, seen: new Set(), items: [] });
     if (g.seen.has(item.name)) return;
     g.seen.add(item.name);
-    g.items.push({ name: item.name, category: cat, source, id: item.id, count: item.count, payment_method: item.payment_method, amount: item.amount });
+    g.items.push({ name: item.name, category: cat, id: item.id, payment_method: item.payment_method, amount: item.amount });
   };
   for (const t of types) {
     sections[t].presets.forEach((p) => push(t, p, "preset"));
-    sections[t].frequent.forEach((p) => push(t, p, "freq"));
-    sections[t].recent.forEach((p) => push(t, p, "recent"));
   }
   const res = {};
   for (const t of types) {
@@ -134,43 +134,11 @@ const grouped = computed(() => {
   return res;
 });
 
-function presetByName(type, name) {
-  return sections[type].presets.find((p) => p.name === name);
-}
-function onChipClick(type, it) {
-  if (it.source === "preset") unpin(type, it); // 再次点击取消收藏
-  else pin(type, it); // 高频/最近 → 收藏
-}
-async function unpin(type, it) {
-  const p = presetByName(type, it.name);
-  if (!p) return;
-  try {
-    await api.delete(`/presets/${p.id}`);
-    toast("已取消收藏");
-    await load();
-  } catch (e) { toast(e.message); }
-}
 function presetTip(it) {
   const parts = [];
   if (it.payment_method) parts.push(it.payment_method);
   if (it.amount > 0) parts.push("¥" + it.amount);
   return parts.join("  ");
-}
-
-// 从「高频 / 最近」一键收藏为常用
-async function pin(type, item) {
-  try {
-    await api.post("/presets", {
-      name: item.name,
-      type,
-      category: item.category || "",
-      payment_method: item.payment_method || "",
-    });
-    toast("已加入常用");
-    await load();
-  } catch (e) {
-    toast(e.message);
-  }
 }
 
 // 扫描本账本流水，把高频名称（出现 ≥2 次）自动加入「常用名称」（已有则跳过）
@@ -209,10 +177,10 @@ async function scanRebuild() {
 
     <div class="card">
       <p class="muted" style="font-size: 13px; margin: 0 0 8px; line-height: 1.7">
-        在这里预设常用的名称，<b>记一笔时会按「支出 / 收入」分别显示成可点击的标签</b>，点一下就填好名称，还能自动带出分类、支付方式和常用金额。<br />
-        常用名称会<b>按「分类」再分组</b>——「餐饮」里的常用名（如午饭、奶茶）和「日用」里的（如纸巾、洗衣液）是分开统计的，互不影响。<br />
-        <b>点击即可收藏（★）</b>，再次点击已收藏的名称则<b>取消收藏</b>。<br />
-        下方的「高频」和「最近」由系统根据你的记账习惯自动统计，无需维护，越用越准。
+        在这里管理「常用名称」（已收藏的）。<b>记一笔时会按「支出 / 收入」分别显示成可点击的标签</b>，点一下就填好名称并带出分类、支付方式和常用金额。<br />
+        常用名称会<b>按「分类」再分组</b>——「餐饮」里的常用名（如午饭、奶茶）和「日用」里的（如纸巾、洗衣液）是分开管理的，互不影响。<br />
+        标签右上角 <b>×</b> 是删除。<b>点击标签本身不会删除</b>，也不会触发任何操作；如需修改请用上方的添加/编辑表单。<br />
+        流水里的「高频名称」和「最近名称」由系统自动统计，在<b>「记一笔」</b>弹窗里以可点标签形式推荐，无需在这里维护。
       </p>
       <div class="toolbar">
         <button class="btn btn-primary" :disabled="scanning" @click="scanRebuild">
@@ -250,21 +218,18 @@ async function scanRebuild() {
               <span class="muted small">{{ g.items.length }} 个</span>
             </div>
             <div class="chips">
-              <button
-                v-for="it in g.items" :key="(it.source === 'preset' ? 'p' : it.source === 'freq' ? 'f' : 'r') + it.name"
-                class="chip" :class="{ 'chip-pin': it.source === 'preset' }"
+              <span
+                v-for="it in g.items" :key="'p' + it.id"
+                class="chip chip-pin"
                 :title="presetTip(it)"
-                @click="onChipClick(type, it)"
               >
-                <em v-if="it.source === 'preset'" class="star">★</em>{{ it.name }}
-                <i v-if="it.source === 'freq'">×{{ it.count }}</i>
-                <em v-else-if="it.source === 'recent'" class="star2">☆</em>
-                <i v-if="it.source === 'preset'" class="x" title="删除" @click.stop="remove(type, it)">×</i>
-              </button>
+                <em class="star">★</em>{{ it.name }}
+                <button type="button" class="x" title="删除" @click.stop="remove(type, it)">×</button>
+              </span>
             </div>
           </div>
         </div>
-        <div v-else class="muted small-pad">{{ loading ? "加载中…" : "还没有常用名称，记几笔账后会按分类自动汇总" }}</div>
+        <div v-else class="muted small-pad">{{ loading ? "加载中…" : "还没有常用名称。可以在上方表单添加，或点上面「🔍 扫描流水重建」从历史流水补齐。" }}</div>
       </div>
     </div>
   </div>
@@ -278,15 +243,20 @@ async function scanRebuild() {
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip {
   border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2);
-  border-radius: 15px; padding: 6px 12px; font-size: 13px; cursor: pointer; position: relative;
+  border-radius: 15px; padding: 6px 12px; font-size: 13px; position: relative;
+  display: inline-flex; align-items: center; gap: 2px;
 }
-.chip:hover { border-color: var(--primary); color: var(--primary); }
 .chip i { font-style: normal; opacity: .5; margin-left: 5px; font-size: 11.5px; }
 .chip em { font-style: normal; margin-left: 6px; opacity: .6; }
 .chip .star { color: var(--warning, #f59f00); margin: 0 4px 0 0; opacity: 1; }
-.chip .star2 { color: var(--text-2); }
-.chip .x { position: absolute; top: -8px; right: -8px; background: var(--expense, #ef4444); color: #fff; border-radius: 50%; width: 18px; height: 18px; line-height: 18px; text-align: center; font-size: 12px; font-style: normal; opacity: 1; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
-.chip .x:hover { transform: scale(1.15); }
+.chip .x {
+  position: absolute; top: -8px; right: -8px; background: var(--expense, #ef4444); color: #fff;
+  border: none; padding: 0; border-radius: 50%; width: 18px; height: 18px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-style: normal; opacity: 1; cursor: pointer; line-height: 1;
+  box-shadow: 0 1px 3px rgba(0,0,0,.3);
+}
+.chip .x:hover { transform: scale(1.15); background: var(--expense, #ef4444); }
 .chip-pin { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
 .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .small-pad { padding: 4px 0 2px; }
