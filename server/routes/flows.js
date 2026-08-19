@@ -104,7 +104,7 @@ r.get(
       .prepare(
         `SELECT f.id, f.book_id, f.user_id, f.type, f.amount, f.category,
                 f.payment_method, f.description, f.flow_time, f.created_at,
-                f.attribution_uid, ${ATTR_SQL} AS attribution, u.color AS attribution_color
+                f.source, f.attribution_uid, ${ATTR_SQL} AS attribution, u.color AS attribution_color
          ${FROM_SQL} ${w}
          ORDER BY ${sortCol} ${sortDir}, f.id DESC LIMIT @limit OFFSET @offset`
       )
@@ -198,10 +198,12 @@ r.post(
     const category = (b.category || "其他").trim();
     // 没写名称时，自动用分类名（如「餐饮」），方便检索与统计
     const description = (b.description || "").toString().trim() || category;
+    // 来源标记：'' 手动 | 'ai' AI识别 | 'auto' 通知自动记账
+    const source = ["ai", "auto"].includes(b.source) ? b.source : "";
     const info = db
       .prepare(
-        `INSERT INTO flows (book_id, user_id, attribution, attribution_uid, type, amount, category, payment_method, description, flow_time)
-         VALUES (@book_id,@user_id,@attribution,@attribution_uid,@type,@amount,@category,@payment_method,@description,@flow_time)`
+        `INSERT INTO flows (book_id, user_id, attribution, attribution_uid, type, amount, category, payment_method, description, flow_time, source)
+         VALUES (@book_id,@user_id,@attribution,@attribution_uid,@type,@amount,@category,@payment_method,@description,@flow_time,@source)`
       )
       .run({
         book_id: req.bookId,
@@ -214,6 +216,7 @@ r.post(
         payment_method: (b.payment_method || "").trim(),
         description,
         flow_time,
+        source,
       });
     res.json({ id: info.lastInsertRowid });
   })

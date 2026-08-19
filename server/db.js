@@ -220,6 +220,9 @@ db.exec(
   "CREATE INDEX IF NOT EXISTS idx_flows_attr_uid ON flows(book_id, attribution_uid)"
 );
 
+// 流水来源标记：'' = 手动记账，'ai' = AI 识别记账，'auto' = 通知自动记账
+addColumnIfMissing("flows", "source", "source TEXT NOT NULL DEFAULT ''");
+
 // 用户颜色：流水归属与统计饼图按此区分
 addColumnIfMissing("users", "color", "color TEXT NOT NULL DEFAULT '#7c8cff'");
 

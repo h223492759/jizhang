@@ -325,7 +325,10 @@ function freqText(t) {
         <tbody>
           <tr v-for="f in data.list" :key="f.id">
             <td><span class="ic">{{ catIcon(f.category) }}</span>{{ f.category }}</td>
-            <td class="hide-mobile muted">{{ f.description || "—" }}</td>
+            <td class="hide-mobile muted">
+              <span v-if="f.source === 'ai'" class="ai-tag" title="AI 记账">AI</span>
+              {{ f.description || "—" }}
+            </td>
             <td class="hide-mobile muted">{{ dayjs(f.flow_time).format("YYYY-MM-DD") }}</td>
             <td class="hide-mobile">
               <span class="tag" :style="f.attribution_color ? { color: f.attribution_color, borderColor: f.attribution_color } : {}">
@@ -484,6 +487,18 @@ function freqText(t) {
 </template>
 
 <style scoped>
+.ai-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 17px;
+  vertical-align: 1px;
+}
 .head-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .filters .input, .filters .select { width: auto; }

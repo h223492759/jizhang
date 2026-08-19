@@ -46,6 +46,7 @@ function confirmResult() {
     payment_method: result.value.payment_method || "",
     description: result.value.description || result.value.category || "",
     flow_time: dayjs().format("YYYY-MM-DD"),
+    source: "ai",
   };
   api
     .post("/flows", payload)

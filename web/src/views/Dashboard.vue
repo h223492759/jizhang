@@ -152,7 +152,10 @@ function catIcon(name) {
       <div v-for="f in recent" :key="f.id" class="frow">
         <div class="ficon">{{ catIcon(f.category) }}</div>
         <div class="fmain">
-          <div class="fcat">{{ f.category }}<span v-if="f.description" class="muted"> · {{ f.description }}</span></div>
+          <div class="fcat">
+            <span v-if="f.source === 'ai'" class="ai-tag" title="AI 记账">AI</span>
+            {{ f.category }}<span v-if="f.description" class="muted"> · {{ f.description }}</span>
+          </div>
           <div class="muted ftime">{{ dayjs(f.flow_time).format("MM-DD") }} · {{ f.attribution || "—" }}</div>
         </div>
         <div class="famt" :class="f.type">{{ f.type === "expense" ? "-" : "+" }}{{ Number(f.amount).toFixed(2) }}</div>
@@ -164,6 +167,18 @@ function catIcon(name) {
 </template>
 
 <style scoped>
+.ai-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 17px;
+  vertical-align: 1px;
+}
 .head-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .cards { grid-template-columns: repeat(3, 1fr); }
 .stat .big { font-size: 22px; font-weight: 800; margin-top: 6px; }
