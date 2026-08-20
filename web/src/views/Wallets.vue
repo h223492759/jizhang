@@ -74,10 +74,11 @@ const hiddenWallets = computed(() => (data.value.wallets || []).filter((w) => Nu
 // ---------------- 新增 / 编辑钱包 ----------------
 const showWallet = ref(false);
 const editingWallet = ref(null);
-const walletForm = ref({ name: "", icon: "👛", target: "", initBalance: "", note: "", link_from: "", link_category: "" });
+// link_categories: 关联分类数组（多选）；服务器存 JSON 数组
+const walletForm = ref({ name: "", icon: "👛", target: "", initBalance: "", note: "", link_from: "", link_categories: [] });
 function openAddWallet() {
   editingWallet.value = null;
-  walletForm.value = { name: "", icon: "👛", target: "", initBalance: "", note: "", link_from: "", link_category: "" };
+  walletForm.value = { name: "", icon: "👛", target: "", initBalance: "", note: "", link_from: "", link_categories: [] };
   showWallet.value = true;
 }
 function openEditWallet(w) {
@@ -89,7 +90,7 @@ function openEditWallet(w) {
     initBalance: "",
     note: w.note || "",
     link_from: w.linkFrom || "",
-    link_category: w.linkCategory || "",
+    link_categories: Array.isArray(w.linkCategories) ? [...w.linkCategories] : (w.linkCategory ? [w.linkCategory] : []),
   };
   showWallet.value = true;
 }
@@ -103,7 +104,7 @@ async function saveWallet() {
     target: t,
     note: walletForm.value.note.trim(),
     link_from: walletForm.value.link_from || "",
-    link_category: walletForm.value.link_category || "",
+    link_category: walletForm.value.link_categories,
   };
   try {
     let wid;
@@ -255,8 +256,8 @@ async function saveTxnEdit() {
         <div class="bar" style="margin-top:8px;height:6px" v-if="w.target">
           <i :style="{ width: Math.max(0, Math.min(100, w.percent)) + '%', background: w.balance >= w.target ? 'var(--income)' : 'var(--primary)' }"></i>
         </div>
-        <div class="w-link" v-if="w.linkCategory">
-          <span class="tag-link">🔗 关联 {{ w.linkCategory }} · 自 {{ w.linkedFrom }}</span>
+        <div class="w-link" v-if="w.linkCategories && w.linkCategories.length">
+          <span class="tag-link">🔗 关联 {{ w.linkCategories.join('、') }} · 自 {{ w.linkedFrom }}</span>
           <div class="muted small">关联自动 <b :class="w.linked >= 0 ? 'income' : 'expense'">{{ w.linked >= 0 ? '+' : '−' }}{{ fmt(Math.abs(w.linked)) }}</b>（手动 {{ fmt(w.manualBalance) }}）</div>
         </div>
         <div class="muted small w-meta">存入 {{ fmt(w.total_in) }}｜支出 {{ fmt(w.total_out) }}</div>
@@ -305,18 +306,28 @@ async function saveTxnEdit() {
           </span>
         </label>
         <div class="field">
-          <span>关联流水分类（可选）：自某日起，该分类的收支自动加减到本钱包</span>
-          <div class="row" style="gap:10px;flex-wrap:wrap">
-            <select class="input" v-model="walletForm.link_category" style="width:auto;min-width:150px">
-              <option value="">不关联</option>
-              <option v-for="c in categoryOptions" :key="c.id" :value="c.name">
+          <span>关联流水分类（可选，可多选）：自某日起，这些分类的收支自动加减到本钱包</span>
+          <div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">
+            <div style="display:flex;flex-wrap:wrap;gap:6px;flex:1">
+              <label
+                v-for="c in categoryOptions" :key="c.id"
+                class="cat-check"
+                :class="{ on: walletForm.link_categories.includes(c.name) }"
+              >
+                <input
+                  type="checkbox"
+                  :value="c.name"
+                  v-model="walletForm.link_categories"
+                  style="display:none"
+                />
                 {{ c.name }}{{ c.type === 'income' ? '（收）' : '（支）' }}
-              </option>
-            </select>
+              </label>
+              <span v-if="!categoryOptions.length" class="muted small">暂无分类，请先在分类页新建</span>
+            </div>
             <DateInput v-model="walletForm.link_from" />
           </div>
-          <span class="muted small" v-if="walletForm.link_category">
-            例：养娃基金关联「孩子」自某日 → 该分类的支出自动从钱包扣减、收入自动加回（余额 = 手动存入 + 关联净额）。
+          <span class="muted small" v-if="walletForm.link_categories.length">
+            例：养娃基金关联「孩子」「玩具」自某日 → 这些分类的支出自动从钱包扣减、收入自动加回（余额 = 手动存入 + 关联净额）。
           </span>
         </div>
         <label class="field">
@@ -456,6 +467,14 @@ async function saveTxnEdit() {
 .w-meta { margin-top: 6px; }
 .w-link { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
 .tag-link { display: inline-block; font-size: 12px; color: var(--primary); background: var(--primary-soft); border-radius: 999px; padding: 2px 9px; margin-bottom: 4px; }
+/* 分类多选 chip */
+.cat-check {
+  display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none;
+  border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px;
+  font-size: 12px; color: var(--text-2); background: var(--surface);
+  transition: all .15s;
+}
+.cat-check.on { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
 .w-foot { display: flex; gap: 6px; justify-content: flex-end; margin-top: 10px; }
 .empty-tip { grid-column: 1/-1; text-align: center; padding: 26px 0; }
 

@@ -134,6 +134,9 @@ const RULE_INCOME = [
   { cat: "工资", kw: ["工资", "薪水", "月薪", "发工资", "工资到账", "薪资", "薪酬"] },
   { cat: "兼职", kw: ["兼职", "外快", "接单", "私活", "副业", "赚外快"] },
   { cat: "理财", kw: ["理财", "基金", "股票", "利息", "股息", "收益", "余额宝", "投资", "分红", "打新"] },
+  { cat: "礼金", kw: ["红包", "收到红包", "领红包"] },
+  { cat: "报销", kw: ["报销", "报销款", "报销到账"] },
+  { cat: "退款", kw: ["退款", "退货退款", "交易退款"] },
 ];
 const RULE_EXPENSE = [
   { cat: "餐饮", kw: ["吃饭", "饭", "餐", "早餐", "早饭", "午餐", "午饭", "晚餐", "晚饭", "夜宵", "外卖", "食堂", "餐厅", "饭店", "饭馆", "火锅", "烧烤", "麻辣烫", "面条", "米粉", "粥", "包子", "饺子", "馄饨", "寿司", "炒菜", "买菜", "食材", "生鲜", "蔬菜", "青菜", "肉", "鸡蛋", "牛奶", "做饭", "下厨", "煮", "炖", "厨房", "宴", "聚餐", "请客吃饭", "酒席", "自助餐", "咖啡", "奶茶", "饮料", "果汁", "小吃", "夜市", "菜场", "菜市场"] },
@@ -194,13 +197,15 @@ function extractAmount(text) {
 function ruleClassify(text, names) {
   const t = String(text).toLowerCase();
   const amount = extractAmount(text);
+  // description 用规则化提取（消费名），避免返回分类名（如「午饭 35」→ description=午饭 而非 餐饮）
+  const desc = extractDescription(text);
   for (const r of RULE_INCOME) {
     if (r.kw.some((k) => t.includes(k.toLowerCase())) && names.includes(r.cat))
-      return { type: "income", amount, category: r.cat, source: "rule" };
+      return { type: "income", amount, category: r.cat, description: desc, source: "rule" };
   }
   for (const r of RULE_EXPENSE) {
     if (r.kw.some((k) => t.includes(k.toLowerCase())) && names.includes(r.cat))
-      return { type: "expense", amount, category: r.cat, source: "rule" };
+      return { type: "expense", amount, category: r.cat, description: desc, source: "rule" };
   }
   return null;
 }
