@@ -20,10 +20,15 @@ function render() {
 function resize() { chart && chart.resize(); }
 
 onMounted(() => { nextTick(render); window.addEventListener("resize", resize); });
-onBeforeUnmount(() => { window.removeEventListener("resize", resize); chart && chart.dispose(); });
+onBeforeUnmount(() => { window.removeEventListener("resize", resize); chart && chart.dispose(); chart = null; });
 
 watch(() => props.option, render, { deep: true });
 watch(() => store.theme, () => { chart && chart.dispose(); chart = null; nextTick(render); });
+
+// 暴露图例操作（用于"全部取消/全部选中"按钮）
+function deselectAll() { chart && chart.dispatchAction({ type: "legendAllUnSelect" }); }
+function selectAll() { chart && chart.dispatchAction({ type: "legendAllSelect" }); }
+defineExpose({ deselectAll, selectAll });
 </script>
 
 <template>

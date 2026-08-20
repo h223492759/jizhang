@@ -45,6 +45,17 @@ async function load() {
     loading.value = false;
   }
 }
+// 静默刷新：不切 loading 标志（避免"加载中"闪烁），用于 chip 点击后的局部更新
+async function silentReload() {
+  try {
+    const [ex, inc] = await Promise.all([
+      api.get("/presets", { params: { type: "expense", limit: 500 } }),
+      api.get("/presets", { params: { type: "income", limit: 500 } }),
+    ]);
+    sections.expense = ex.data;
+    sections.income = inc.data;
+  } catch (e) { toast(e.message); }
+}
 onMounted(load);
 
 async function submit(type) {
@@ -77,53 +88,73 @@ async function unpinAll(type) {
   try {
     await api.delete("/presets/all", { params: { type } });
     toast("已全部取消收藏");
-    await load();
+    await silentReload();
   } catch (e) {
     toast(e.message);
   }
 }
 
-// 点击 chip 切换状态
+// 点击 chip 切换状态（乐观更新 + 静默刷新，避免"加载中"闪烁）
 async function toggle(type, it) {
+  // 乐观更新：先在本地把 chip 移到目标状态
+  if (it.source === "preset") {
+    // ★ → ×N：从 presets 移除，加到 frequent
+    sections[type].presets = sections[type].presets.filter((p) => p.id !== it.id);
+    sections[type].frequent = [...sections[type].frequent, {
+      name: it.name, count: 1, category: it.category, payment_method: it.payment_method, avg_amount: it.amount || 0,
+    }];
+    toast("已取消收藏");
+  } else {
+    // ×N → ★：从 frequent 移除，加到 presets（id 占位，刷新后会更新）
+    sections[type].frequent = sections[type].frequent.filter((p) => p.name !== it.name);
+    const maxSort = sections[type].presets.reduce((m, p) => Math.max(m, p.sort || 0), 0);
+    sections[type].presets = [...sections[type].presets, {
+      id: 0, name: it.name, type, category: it.category, payment_method: it.payment_method, amount: it.avg_amount || 0, sort: maxSort + 1,
+    }];
+    toast("已加入收藏");
+  }
+  // 静默刷新拿到真实数据（count / id）
   try {
     if (it.source === "preset") {
       await api.delete("/presets/" + it.id);
-      toast("已取消收藏");
     } else {
       await api.post("/presets", {
-        name: it.name,
-        type,
+        name: it.name, type,
         category: it.category || "",
         payment_method: it.payment_method || "",
       });
-      toast("已加入收藏");
     }
-    await load();
-  } catch (e) {
-    toast(e.message);
-  }
+    silentReload();
+  } catch (e) { toast(e.message); }
 }
 
-// 第三态：取消显示（隐藏），进入置底「已取消显示」区
+// 第三态：取消显示（隐藏），进入置底「已取消显示」区（乐观更新 + 静默刷新）
 async function hide(type, it) {
+  // 乐观更新：从 presets/frequent 移除，加到 hidden
+  if (it.source === "preset") sections[type].presets = sections[type].presets.filter((p) => p.id !== it.id);
+  else sections[type].frequent = sections[type].frequent.filter((p) => p.name !== it.name);
+  if (!sections[type].hidden) sections[type].hidden = [];
+  if (!sections[type].hidden.some((h) => h.name === it.name)) {
+    sections[type].hidden = [...sections[type].hidden, { name: it.name, category: it.category || "" }];
+  }
+  toast("已取消显示");
   try {
     await api.post("/presets/hide", { name: it.name, type });
-    toast("已取消显示");
-    await load();
-  } catch (e) {
-    toast(e.message);
-  }
+    silentReload();
+  } catch (e) { toast(e.message); }
 }
 
-// 恢复显示：从隐藏区移除（频次 ≥2 会重新出现在未收藏建议里）
+// 恢复显示：从隐藏区移除（乐观更新 + 静默刷新）
 async function restore(type, h) {
+  // 乐观更新：从 hidden 移除
+  if (sections[type].hidden) {
+    sections[type].hidden = sections[type].hidden.filter((x) => x.name !== h.name);
+  }
+  toast("已恢复显示");
   try {
     await api.post("/presets/unhide", { name: h.name, type });
-    toast("已恢复显示");
-    await load();
-  } catch (e) {
-    toast(e.message);
-  }
+    silentReload();
+  } catch (e) { toast(e.message); }
 }
 
 // 立即刷新建议：手动触发当前账本的 preset_suggest 重建（正常由流水保存/每日扫描触发）

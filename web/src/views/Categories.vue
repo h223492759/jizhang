@@ -12,6 +12,22 @@ const form = ref({ id: null, name: "", type: "expense", icon: "💰", color: "#6
 // 合并删除对话框：删除的分类有数据时，强制选个目标合并再删
 const mergeDlg = ref({ open: false, source: null, targetId: "" });
 
+// 该分类下的流水弹窗
+const flowDlg = ref({ open: false, category: null, type: 'expense', flows: [], loading: false, total: 0 });
+
+async function showFlows(c) {
+  flowDlg.value = { open: true, category: c, type: c.type, flows: [], loading: true, total: 0 };
+  try {
+    const { data } = await api.get("/flows", {
+      params: { type: c.type, category: c.name, pageSize: 100, sortBy: 'flow_time', order: 'desc' },
+    });
+    flowDlg.value.flows = data.list;
+    flowDlg.value.total = data.total;
+  } catch (e) { toast(e.message); }
+  finally { flowDlg.value.loading = false; }
+}
+function closeFlows() { flowDlg.value.open = false; }
+
 const ICONS = [
   "🍜","🛍️","🚌","🏠","🎮","💊","📚","📱","🎁","💸","💼","🏆","📈","🧧","🪙","☕","🍔","🚗","✈️","🏥","🎬","👕","🐱","💡","🎓","💰","💳","🍎","🏋️","🎵",
   "🥘","🥡","🧋","🥦","🍉","🍰","🍪","🍺","💄","🧴","👟","👜","🧥","💍","🎂","💐","🎉","🤝","🚕","🚄","🅿️","⛽","🔧","💻","📷","🎧","🎨","🚲","🏊","🏕️",
@@ -152,7 +168,7 @@ const mergeTargets = computed(() => {
       <div v-for="c in list" :key="c.id" class="card cat" @click="edit(c)">
         <div class="cicon" :style="{ background: c.color + '22', color: c.color }">{{ c.icon }}</div>
         <div class="cname">{{ c.name }}</div>
-        <div v-if="(c.flow_count||0) > 0" class="flow-badge" :title="`该分类下有 ${c.flow_count} 条流水`">
+        <div v-if="(c.flow_count||0) > 0" class="flow-badge clickable" :title="`该分类下有 ${c.flow_count} 条流水，点击查看`" @click.stop="showFlows(c)">
           📊 {{ c.flow_count }} 条流水
         </div>
         <div class="cat-actions">
@@ -214,6 +230,31 @@ const mergeTargets = computed(() => {
         </div>
       </div>
     </div>
+
+    <!-- 该分类下的流水列表弹窗（点击 📊N 条流水 徽标） -->
+    <div v-if="flowDlg.open" class="modal-mask" @click.self="closeFlows">
+      <div class="modal" style="max-width: 720px">
+        <div class="modal-head">
+          <b>📊 {{ flowDlg.category?.icon }} {{ flowDlg.category?.name }} 的流水</b>
+          <span class="muted">共 {{ flowDlg.total }} 笔</span>
+          <button class="btn btn-sm" style="margin-left:auto" @click="closeFlows">关闭</button>
+        </div>
+        <div class="modal-body" style="max-height: 60vh; overflow:auto">
+          <div v-if="flowDlg.loading" class="muted" style="padding:24px;text-align:center">加载中…</div>
+          <div v-else-if="flowDlg.flows.length" class="flow-list">
+            <div v-for="f in flowDlg.flows" :key="f.id" class="flow-row">
+              <span class="flow-date muted">{{ (f.flow_time||'').slice(0,10) }}</span>
+              <span class="flow-name">{{ f.description || f.category }}</span>
+              <span class="flow-cat muted">{{ f.category }}</span>
+              <span class="flow-amt" :class="f.type">
+                {{ f.type==='expense' ? '-' : '+' }}{{ Number(f.amount).toFixed(2) }}
+              </span>
+            </div>
+          </div>
+          <div v-else class="muted" style="padding:24px;text-align:center">该分类下暂无流水</div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -229,6 +270,22 @@ const mergeTargets = computed(() => {
 .cicon.sm { width: 30px; height: 30px; font-size: 17px; display: inline-flex; vertical-align: middle; }
 .cname { font-size: 13px; }
 .flow-badge { font-size: 11px; color: var(--text-2); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 2px 8px; }
+.flow-badge.clickable { cursor: pointer; transition: all .15s; }
+.flow-badge.clickable:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+
+/* 流水列表弹窗（点击分类徽标时弹出） */
+.modal-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--surface-2); }
+.modal-body { padding: 8px 16px 16px; }
+.flow-list { display: flex; flex-direction: column; gap: 6px; }
+.flow-row {
+  display: grid; grid-template-columns: 92px 1fr auto auto; gap: 10px; align-items: center;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); font-size: 13px;
+}
+.flow-name { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flow-cat { font-size: 12px; }
+.flow-amt { font-weight: 700; min-width: 80px; text-align: right; }
+.flow-amt.expense { color: var(--expense); }
+.flow-amt.income { color: var(--income); }
 .cat-actions { position: absolute; top: 6px; right: 8px; display: flex; gap: 2px; }
 .del { border: none; background: transparent; color: var(--text-2); cursor: pointer; font-size: 16px; line-height: 1; opacity: 0; }
 .mini { border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); cursor: pointer; font-size: 11px; width: 18px; height: 18px; border-radius: 5px; line-height: 1; opacity: 0; }
