@@ -12,13 +12,15 @@ const TYPE_META = {
   income: { label: "收入", icon: "💰" },
 };
 
-// 支出 / 收入 各自独立的一组数据，分别展示
+// 两态模型：
+//   presets  = 已收藏（★），存在 presets 表
+//   frequent = 未收藏建议（×N），实时从流水聚合（count >= 2，不在 presets 里）
+// 点击 chip 即在两态间切换：已收藏 → 取消收藏；未收藏 → 加入收藏。
 const sections = reactive({
   expense: { presets: [], frequent: [], recent: [] },
   income: { presets: [], frequent: [], recent: [] },
 });
 const forms = reactive({ expense: blank(), income: blank() });
-const editingId = reactive({ expense: null, income: null });
 
 function blank() {
   return { name: "", category: "", payment_method: "", amount: "" };
@@ -31,8 +33,8 @@ async function load() {
   loading.value = true;
   try {
     const [ex, inc] = await Promise.all([
-      api.get("/presets", { params: { type: "expense", limit: 30 } }),
-      api.get("/presets", { params: { type: "income", limit: 30 } }),
+      api.get("/presets", { params: { type: "expense", limit: 60 } }),
+      api.get("/presets", { params: { type: "income", limit: 60 } }),
     ]);
     sections.expense = ex.data;
     sections.income = inc.data;
@@ -47,92 +49,42 @@ onMounted(load);
 async function submit(type) {
   const f = forms[type];
   if (!f.name.trim()) return toast("请填写常用名称");
-  const payload = {
-    name: f.name.trim(),
-    type,
-    category: f.category || "",
-    payment_method: f.payment_method || "",
-    amount: Number(f.amount) || 0,
-  };
   try {
-    if (editingId[type]) {
-      await api.put(`/presets/${editingId[type]}`, payload);
-      toast("已更新");
-    } else {
-      await api.post("/presets", payload);
-      toast("已添加");
-    }
-    forms[type] = blank();
-    editingId[type] = null;
-    await load();
-  } catch (e) {
-    toast(e.message);
-  }
-}
-
-function edit(type, p) {
-  editingId[type] = p.id;
-  forms[type] = {
-    name: p.name,
-    category: p.category,
-    payment_method: p.payment_method,
-    amount: p.amount || "",
-  };
-}
-function cancelEdit(type) {
-  editingId[type] = null;
-  forms[type] = blank();
-}
-
-async function remove(type, p) {
-  if (!confirm(`删除常用名称「${p.name}」？（不会影响已有账单）`)) return;
-  try {
-    await api.delete(`/presets/${p.id}`);
-    if (editingId[type] === p.id) cancelEdit(type);
-    toast("已删除");
-    await load();
-  } catch (e) {
-    toast(e.message);
-  }
-}
-
-// 按「分类」二次分组：本页只展示 preset（已收藏的常用名称），frequent/recent
-// 是自动建议，移到「记一笔」弹窗里推荐，不再混在管理页里——
-// 这样本页每一条都可以用右上角 × 删除。
-const grouped = computed(() => {
-  const out = {};
-  const push = (type, item, source) => {
-    const cat = item.category || "未分类";
-    out[type] = out[type] || {};
-    const g = (out[type][cat] = out[type][cat] || { category: cat, seen: new Set(), items: [] });
-    if (g.seen.has(item.name)) return;
-    g.seen.add(item.name);
-    g.items.push({ name: item.name, category: cat, id: item.id, payment_method: item.payment_method, amount: item.amount });
-  };
-  for (const t of types) {
-    sections[t].presets.forEach((p) => push(t, p, "preset"));
-  }
-  const res = {};
-  for (const t of types) {
-    const arr = Object.values(out[t] || {}).map((g) => ({
-      category: g.category,
-      weight: g.items.reduce((s, it) => s + (it.count || 1), 0),
-      items: g.items,
-    }));
-    // 按「分类规范顺序」排列（支出在前、收入在后，遵循分类管理里的顺序），未分类置底
-    const orderMap = {};
-    store.categories.forEach((c, i) => { orderMap[c.name] = i; });
-    arr.sort((a, b) => {
-      if (a.category === "未分类") return 1;
-      if (b.category === "未分类") return -1;
-      const ia = orderMap[a.category] ?? 1e9;
-      const ib = orderMap[b.category] ?? 1e9;
-      return ia - ib;
+    await api.post("/presets", {
+      name: f.name.trim(),
+      type,
+      category: f.category || "",
+      payment_method: f.payment_method || "",
+      amount: Number(f.amount) || 0,
     });
-    res[t] = arr;
+    toast("已加入收藏");
+    forms[type] = blank();
+    await load();
+  } catch (e) {
+    toast(e.message);
   }
-  return res;
-});
+}
+
+// 点击 chip 切换状态
+async function toggle(type, it) {
+  try {
+    if (it.source === "preset") {
+      await api.delete("/presets/" + it.id);
+      toast("已取消收藏");
+    } else {
+      await api.post("/presets", {
+        name: it.name,
+        type,
+        category: it.category || "",
+        payment_method: it.payment_method || "",
+      });
+      toast("已加入收藏");
+    }
+    await load();
+  } catch (e) {
+    toast(e.message);
+  }
+}
 
 function presetTip(it) {
   const parts = [];
@@ -141,34 +93,49 @@ function presetTip(it) {
   return parts.join("  ");
 }
 
-// 扫描本账本流水，把高频名称（出现 ≥2 次）自动加入「常用名称」（已有则跳过）
-const scanning = ref(false);
-async function scanRebuild() {
-  if (
-    !confirm(
-      "将扫描本账本所有流水，把出现 ≥2 次的名称加入「常用名称」（已存在则跳过）。\n这是一键重建，数量可能较多，是否继续？"
-    )
-  )
-    return;
-  scanning.value = true;
-  try {
-    const { data } = await api.post("/presets/scan");
-    await load();
-    alert(
-      "扫描完成：\n新增 " +
-        data.added +
-        " 个常用名称\n跳过已存在 " +
-        data.skipped +
-        " 个\n（共匹配 " +
-        data.scanned +
-        " 个）"
-    );
-  } catch (e) {
-    toast(e.message);
-  } finally {
-    scanning.value = false;
+// 按「分类」分组，每组内同时包含已收藏（★）和未收藏（×N）：
+// 已收藏排前，未收藏按频次降序；同名已存在则跳过（防重复）。
+const grouped = computed(() => {
+  const out = {};
+  const push = (type, item, source) => {
+    const cat = item.category || "未分类";
+    out[type] = out[type] || {};
+    const grp = (out[type][cat] = out[type][cat] || { category: cat, items: [] });
+    if (grp.items.some((x) => x.name === item.name)) return;
+    grp.items.push({
+      name: item.name,
+      category: cat,
+      source,
+      id: item.id,
+      count: item.count,
+      payment_method: item.payment_method,
+      amount: item.amount,
+    });
+  };
+  for (const t of types) {
+    sections[t].presets.forEach((p) => push(t, p, "preset"));
+    sections[t].frequent.forEach((p) => push(t, p, "freq"));
   }
-}
+  const res = {};
+  for (const t of types) {
+    const arr = Object.values(out[t] || {});
+    arr.forEach((g) => {
+      g.items.sort((a, b) => {
+        if (a.source !== b.source) return a.source === "preset" ? -1 : 1;
+        return (b.count || 0) - (a.count || 0);
+      });
+    });
+    const orderMap = {};
+    store.categories.forEach((c, i) => { orderMap[c.name] = i; });
+    arr.sort((a, b) => {
+      if (a.category === "未分类") return 1;
+      if (b.category === "未分类") return -1;
+      return (orderMap[a.category] ?? 1e9) - (orderMap[b.category] ?? 1e9);
+    });
+    res[t] = arr;
+  }
+  return res;
+});
 </script>
 
 <template>
@@ -177,17 +144,13 @@ async function scanRebuild() {
 
     <div class="card">
       <p class="muted" style="font-size: 13px; margin: 0 0 8px; line-height: 1.7">
-        在这里管理「常用名称」（已收藏的）。<b>记一笔时会按「支出 / 收入」分别显示成可点击的标签</b>，点一下就填好名称并带出分类、支付方式和常用金额。<br />
-        常用名称会<b>按「分类」再分组</b>——「餐饮」里的常用名（如午饭、奶茶）和「日用」里的（如纸巾、洗衣液）是分开管理的，互不影响。<br />
-        标签右上角 <b>×</b> 是删除。<b>点击标签本身不会删除</b>，也不会触发任何操作；如需修改请用上方的添加/编辑表单。<br />
-        流水里的「高频名称」和「最近名称」由系统自动统计，在<b>「记一笔」</b>弹窗里以可点标签形式推荐，无需在这里维护。
+        在这里管理「常用名称」。<b>记一笔时会按「支出 / 收入」分别显示成可点击的标签</b>，点一下就填好名称并带出分类、支付方式和常用金额。<br />
+        常用名称按「分类」分组。每个名称有两个状态：
+        <b>★ 已收藏</b>（点击可<b>取消收藏</b>，回到下方未收藏区）
+        /
+        <b>×N 未收藏</b>（实时统计的使用频次，点击可<b>加入收藏</b>）。<br />
+        流水里的最近名称在「记一笔」弹窗里推荐。
       </p>
-      <div class="toolbar">
-        <button class="btn btn-primary" :disabled="scanning" @click="scanRebuild">
-          {{ scanning ? "扫描中…" : "🔍 扫描流水重建常用名称" }}
-        </button>
-        <span class="muted small">把出现 ≥2 次的名称一键补进「常用名称」（已存在则跳过）</span>
-      </div>
     </div>
 
     <div class="cols">
@@ -196,7 +159,7 @@ async function scanRebuild() {
           {{ TYPE_META[type].icon }} {{ TYPE_META[type].label }} · 常用名称
         </div>
 
-        <!-- 添加 / 编辑表单 -->
+        <!-- 添加表单 -->
         <div class="row form-row">
           <input class="input" style="flex: 2; min-width: 130px" v-model.trim="forms[type].name" :placeholder="`${TYPE_META[type].label}常用名称，如：${type === 'expense' ? '早饭 / 地铁通勤' : '工资 / 红包'}`" />
           <select class="select" style="flex: 1; min-width: 100px" v-model="forms[type].category">
@@ -205,12 +168,11 @@ async function scanRebuild() {
           </select>
           <input class="input" style="flex: 1; min-width: 100px" v-model.trim="forms[type].payment_method" placeholder="支付方式" />
           <input class="input" style="flex: 1; min-width: 80px" type="number" step="0.01" v-model="forms[type].amount" placeholder="金额" />
-          <button class="btn btn-primary" @click="submit(type)">{{ editingId[type] ? "保存修改" : "+ 添加" }}</button>
-          <button class="btn" v-if="editingId[type]" @click="cancelEdit(type)">取消</button>
+          <button class="btn btn-primary" @click="submit(type)">+ 加入收藏</button>
         </div>
 
-        <!-- 按分类分组的常用名称：餐饮一组、日用一组…… -->
-        <div class="section-sub">常用名称（按分类分组，餐饮 / 日用 等各自独立）</div>
+        <!-- 按分类分组的常用名称：每组内 ★ 在前，×N 在后；点击切换 -->
+        <div class="section-sub">常用名称（按分类分组；点击切换收藏状态）</div>
         <div v-if="grouped[type].length" class="cat-groups">
           <div class="cat-group" v-for="g in grouped[type]" :key="g.category">
             <div class="cat-group-head">
@@ -218,18 +180,20 @@ async function scanRebuild() {
               <span class="muted small">{{ g.items.length }} 个</span>
             </div>
             <div class="chips">
-              <span
-                v-for="it in g.items" :key="'p' + it.id"
-                class="chip chip-pin"
-                :title="presetTip(it)"
+              <button
+                v-for="it in g.items" :key="it.source + (it.id || '') + it.name"
+                class="chip" :class="{ 'chip-pin': it.source === 'preset', 'chip-freq': it.source === 'freq' }"
+                :title="presetTip(it) + (it.source === 'preset' ? '（点击取消收藏）' : '（点击加入收藏）')"
+                @click="toggle(type, it)"
               >
-                <em class="star">★</em>{{ it.name }}
-                <button type="button" class="x" title="删除" @click.stop="remove(type, it)">×</button>
-              </span>
+                <em v-if="it.source === 'preset'" class="star">★</em>
+                <i v-if="it.source === 'freq'" class="cnt">×{{ it.count }}</i>
+                {{ it.name }}
+              </button>
             </div>
           </div>
         </div>
-        <div v-else class="muted small-pad">{{ loading ? "加载中…" : "还没有常用名称。可以在上方表单添加，或点上面「🔍 扫描流水重建」从历史流水补齐。" }}</div>
+        <div v-else class="muted small-pad">{{ loading ? "加载中…" : "还没有常用名称。在上方表单添加，或记几笔账后看下方未收藏建议。" }}</div>
       </div>
     </div>
   </div>
@@ -243,22 +207,15 @@ async function scanRebuild() {
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip {
   border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2);
-  border-radius: 15px; padding: 6px 12px; font-size: 13px; position: relative;
+  border-radius: 15px; padding: 6px 12px; font-size: 13px;
   display: inline-flex; align-items: center; gap: 2px;
+  font-family: inherit; cursor: pointer;
 }
-.chip i { font-style: normal; opacity: .5; margin-left: 5px; font-size: 11.5px; }
-.chip em { font-style: normal; margin-left: 6px; opacity: .6; }
-.chip .star { color: var(--warning, #f59f00); margin: 0 4px 0 0; opacity: 1; }
-.chip .x {
-  position: absolute; top: -8px; right: -8px; background: var(--expense, #ef4444); color: #fff;
-  border: none; padding: 0; border-radius: 50%; width: 18px; height: 18px;
-  display: inline-flex; align-items: center; justify-content: center;
-  font-size: 12px; font-style: normal; opacity: 1; cursor: pointer; line-height: 1;
-  box-shadow: 0 1px 3px rgba(0,0,0,.3);
-}
-.chip .x:hover { transform: scale(1.15); background: var(--expense, #ef4444); }
+.chip:hover { border-color: var(--primary); }
+.chip .star { color: var(--warning, #f59f00); margin-right: 4px; font-style: normal; }
+.chip .cnt { font-style: normal; opacity: .55; margin-right: 5px; font-size: 11.5px; }
 .chip-pin { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
-.toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+/* chip-freq 使用默认（中性）样式，与 chip-pin 形成对照 */
 .small-pad { padding: 4px 0 2px; }
 .cat-groups { display: flex; flex-direction: column; gap: 14px; margin-top: 4px; }
 .cat-group { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--surface-2); }
