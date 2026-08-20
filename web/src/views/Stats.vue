@@ -40,6 +40,10 @@ const period = computed(() => {
   return { start: custom.value.start, end: custom.value.end };
 });
 
+// 当前柱状图应展示的年份：月模式跟随 selMonth 的年份；年/自定义模式用 year
+const barYear = computed(() =>
+  range.value === 'month' ? (selMonth.value || '').slice(0, 4) : year.value
+);
 async function load() {
   const params = period.value;
   const [ov, cat, attr, day] = await Promise.all([
@@ -52,7 +56,7 @@ async function load() {
   category.value = cat.data;
   attribution.value = attr.data;
   daily.value = day.data;
-  const { data: mon } = await api.get("/stats/monthly", { params: { year: year.value } });
+  const { data: mon } = await api.get("/stats/monthly", { params: { year: barYear.value } });
   monthly.value = mon;
 }
 // 切换年份时重新拉月度柱状图
@@ -75,15 +79,21 @@ function pie(title, data, colorMap) {
   return {
     title: { text: title, left: "center", textStyle: { fontSize: 14 } },
     tooltip: { trigger: "item", formatter: "{b}: ¥{c} ({d}%)" },
-    // 拉大饼图与图例的间距（避免图1那样标注贴着饼图底部），图例分页处理
-    legend: { bottom: 4, type: "scroll", width: "94%", itemWidth: 10, itemHeight: 10, textStyle: { fontSize: 11 }, padding: [8, 0, 4, 0] },
+    // legend 用 plain（不分页/不滚动）—— 用户要求分类标注全部显示；
+    // 分类多时 legend 会自然换行多行，chart 高度已加大到 480 给空间
+    legend: { bottom: 6, type: "plain", width: "96%", itemWidth: 10, itemHeight: 10, textStyle: { fontSize: 11 } },
     color: PALETTE,
     series: [{
       name: title,
-      type: "pie", radius: ["32%", "58%"], center: ["50%", "44%"],
+      type: "pie",
+      // 缩小饼图半径、往上偏，给底部 legend 留足够空间（避免引线拉到画面外）
+      radius: ["22%", "44%"],
+      center: ["50%", "40%"],
       cursor: "pointer",
       avoidLabelOverlap: true,
       itemStyle: { borderRadius: 6, borderColor: "transparent", borderWidth: 2 },
+      // 引线缩短：length/length2 限制在 6/6，避免拉太远
+      labelLine: { length: 6, length2: 6 },
       label: { formatter: "{b}\n{d}%", fontSize: 11 },
       data: data.map((d) => ({
         name: d.name,
@@ -260,7 +270,7 @@ function pct(f) {
           <span class="muted small">💡 点击饼图扇区或下方标注查看明细</span>
           <button v-if="category.length" class="btn btn-mini clear-btn" @click="clearPieLegend">全部取消</button>
         </div>
-        <EChart ref="pieChart" :key="'pie-' + chartKey" :option="pie('支出分类', category)" v-if="category.length" @click="onPieClick" :height="'380px'" />
+        <EChart ref="pieChart" :key="'pie-' + chartKey" :option="pie('支出分类', category)" v-if="category.length" @click="onPieClick" :height="'480px'" />
         <div v-if="!category.length" class="empty muted">暂无支出数据</div>
       </div>
       <div class="card">
@@ -268,7 +278,7 @@ function pct(f) {
           <span class="muted small">💡 点击饼图扇区或下方标注查看明细</span>
           <button v-if="attribution.length" class="btn btn-mini clear-btn" @click="clearAttrLegend">全部取消</button>
         </div>
-        <EChart ref="attrChart" :key="'attr-' + chartKey" :option="pie('消费归属', attribution, attrColorMap)" v-if="attribution.length" @click="onPieClick" :height="'380px'" />
+        <EChart ref="attrChart" :key="'attr-' + chartKey" :option="pie('消费归属', attribution, attrColorMap)" v-if="attribution.length" @click="onPieClick" :height="'480px'" />
         <div v-if="!attribution.length" class="empty muted">暂无数据</div>
       </div>
       <div class="card daily-card">
@@ -279,8 +289,8 @@ function pct(f) {
     </div>
 
     <div class="card" style="margin-top:16px">
-      <div class="section-title">{{ year }} 年每月流水</div>
-      <EChart :key="'monthly-' + year" :option="monthlyOpt" :height="'320px'" @click="onBarClick" />
+      <div class="section-title">{{ barYear }} 年每月流水</div>
+      <EChart :key="'monthly-' + barYear" :option="monthlyOpt" :height="'320px'" @click="onBarClick" />
     </div>
 
     <!-- 饼图 / 柱形点击后的明细弹窗 -->

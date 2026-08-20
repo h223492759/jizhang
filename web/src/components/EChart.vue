@@ -26,8 +26,23 @@ watch(() => props.option, render, { deep: true });
 watch(() => store.theme, () => { chart && chart.dispose(); chart = null; nextTick(render); });
 
 // 暴露图例操作（用于"全部取消/全部选中"按钮）
-function deselectAll() { chart && chart.dispatchAction({ type: "legendAllUnSelect" }); }
-function selectAll() { chart && chart.dispatchAction({ type: "legendAllSelect" }); }
+// 用 setOption 强制覆盖 legend.selected（比 dispatchAction 更稳，不依赖 legend 是否已渲染）
+function _legendNames() {
+  const data = props.option?.series?.[0]?.data || props.option?.legend?.data || [];
+  return data.map((d) => (typeof d === "string" ? d : d.name)).filter(Boolean);
+}
+function deselectAll() {
+  if (!chart) return;
+  const map = {};
+  for (const n of _legendNames()) map[n] = false;
+  chart.setOption({ legend: { selected: map } });
+}
+function selectAll() {
+  if (!chart) return;
+  const map = {};
+  for (const n of _legendNames()) map[n] = true;
+  chart.setOption({ legend: { selected: map } });
+}
 defineExpose({ deselectAll, selectAll });
 </script>
 

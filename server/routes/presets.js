@@ -67,14 +67,17 @@ r.get(
     // 未收藏建议（×N）：读物化表，**只显示出现 ≥2 次的**（"常用"的定义），
     // 排除已收藏与已隐藏。存储层 preset_suggest 仍保留 count=0/1 的手动项
     // （防止取消收藏后名称丢失），只是显示层不展示。
+    // 用 LEFT JOIN 替 NOT IN——大数据量下 NOT IN 子查询可能慢且与 NULL 行为有坑
     const frequent = db
       .prepare(
         `SELECT s.name, s.count, s.category, s.payment_method, s.avg_amount
            FROM preset_suggest s
+           LEFT JOIN presets     p ON p.book_id=s.book_id AND p.type=s.type AND p.name=s.name
+           LEFT JOIN hidden_names h ON h.book_id=s.book_id AND h.type=s.type AND h.name=s.name
           WHERE s.book_id=@bookId AND s.type=@type
             AND s.count >= 2
-            AND s.name NOT IN (SELECT name FROM presets WHERE book_id=@bookId AND type=@type)
-            AND s.name NOT IN (SELECT name FROM hidden_names WHERE book_id=@bookId AND type=@type)
+            AND p.id IS NULL
+            AND h.name IS NULL
           ORDER BY s.count DESC, s.updated_at DESC
           LIMIT @limit`
       )

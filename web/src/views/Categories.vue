@@ -374,8 +374,8 @@ const mergeTargets = computed(() => {
 .modal-body { padding: 8px 16px 16px; }
 .flow-list { display: flex; flex-direction: column; gap: 6px; }
 .flow-row {
-  display: grid; grid-template-columns: 92px 1fr auto auto auto auto; gap: 10px; align-items: center;
-  padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); font-size: 13px;
+  display: grid; grid-template-columns: 80px minmax(0, 1fr) auto auto auto auto; gap: 8px; align-items: center;
+  padding: 7px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); font-size: 12.5px;
 }
 .flow-name { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .flow-cat, .flow-pay { font-size: 12px; }
@@ -389,10 +389,6 @@ const mergeTargets = computed(() => {
 }
 .row-btn:hover { border-color: var(--primary); color: var(--primary); }
 .row-btn.del:hover { border-color: var(--expense, #ef4444); color: var(--expense, #ef4444); }
-.flow-row {
-  display: grid; grid-template-columns: 92px 1fr auto auto; gap: 10px; align-items: center;
-  padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); font-size: 13px;
-}
 .flow-name { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .flow-cat { font-size: 12px; }
 .flow-amt { font-weight: 700; min-width: 80px; text-align: right; }
