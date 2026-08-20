@@ -152,6 +152,51 @@ r.get(
 );
 
 // 本账本可选归属人列表（前端下拉用）
+// 流水查询（发现页 AI 问账用）：按分类+时段统计合计
+//   GET /flows/query?category=奶茶&period=this_month
+//   返回 { category, period: 'YYYY-MM', count, total }
+r.get(
+  "/query",
+  requireBook,
+  wrap((req, res) => {
+    const category = String(req.query.category || "").trim();
+    if (!category) return res.status(400).json({ error: "category 必填" });
+    const period = String(req.query.period || "this_month");
+    const now = new Date();
+    let start, end, periodLabel;
+    if (period === "last_month") {
+      const y = now.getFullYear();
+      const m = now.getMonth(); // 0-indexed, 上月
+      const yy = m === 0 ? y - 1 : y;
+      const mm = m === 0 ? 12 : m;
+      start = `${yy}-${String(mm).padStart(2, "0")}-01`;
+      end = new Date(y, now.getMonth(), 0, 23, 59, 59).toISOString().slice(0, 19);
+      periodLabel = `${yy}-${String(mm).padStart(2, "0")}`;
+    } else {
+      // 默认本月
+      const y = now.getFullYear();
+      const m = now.getMonth() + 1;
+      start = `${y}-${String(m).padStart(2, "0")}-01`;
+      end = new Date(y, m, 0, 23, 59, 59).toISOString().slice(0, 19);
+      periodLabel = `${y}-${String(m).padStart(2, "0")}`;
+    }
+    const rows = db
+      .prepare(
+        `SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total
+           FROM flows
+          WHERE book_id=? AND category=? AND type='expense'
+            AND flow_time >= ? AND flow_time <= ?`
+      )
+      .get(req.bookId, category, start, end);
+    res.json({
+      category,
+      period: periodLabel,
+      count: Number(rows.count) || 0,
+      total: Number(rows.total) || 0,
+    });
+  })
+);
+
 r.get(
   "/attributions",
   requireBook,

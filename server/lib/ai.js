@@ -237,7 +237,34 @@ function forceCorrect(rawText, obj) {
   return obj;
 }
 
-function buildResult({ type, amount, category, description = "", payment_method = "", source }) {
+// 规则化 description 提取：去掉数字/¥/动词/日期前缀，保留消费名词和地点/助词
+// 示例：
+//   "午饭花了38元"               → "午饭"
+//   "滴滴打车22.5，从公司回家"   → "滴滴打车从公司回家"
+//   "8月15号工资到账12000"       → "工资"
+//   "这个月奶茶花了多少"         → "奶茶"
+function extractDescription(text) {
+  let t = String(text).trim();
+  t = t.replace(/^\s*(\d{1,2}\s*月\s*\d{1,2}\s*[日号]?)\s*/, "");
+  t = t.replace(/^\s*(昨天|今天|前天|这个月|上个月|本月|上月)\s*/, "");
+  t = t.replace(/\d+(?:\.\d+)?/g, "");
+  t = t.replace(/[¥￥]/g, "");
+  // 移除动词短语（保留"从/到/的"等助词，描述里有意义，如"从公司回家"）
+  t = t.replace(
+    /(花了|到账|支付了?|付款了?|买了|交了|缴费了?|充值了?|消费了?|打了)/g,
+    " "
+  );
+  t = t.replace(/[，。,\.!?;:：；！？、]/g, " ");
+  t = t.replace(/\s+/g, " ").trim();
+  return t;
+}
+
+// 问句检测：含疑问词 → 走查询模式（不记账）
+function isQuery(text) {
+  return /(多少|几|哪个|哪个了|花了多少|合计|总共|一共|总计)/.test(String(text));
+}
+
+function buildResult({ type, amount, category, description = "", payment_method = "", source, kind = null }) {
   return {
     type: type === "income" ? "income" : "expense",
     amount: Math.abs(Number(amount)) || 0,
@@ -246,6 +273,7 @@ function buildResult({ type, amount, category, description = "", payment_method 
     payment_method: payment_method || "",
     flow_time: dayjs().format("YYYY-MM-DD HH:mm:ss"),
     source,
+    kind,
   };
 }
 
@@ -256,8 +284,19 @@ export async function parseFlowText(text, categories) {
   const names = categories.map((c) => c.name);
   const catType = (name) => categories.find((c) => c.name === name)?.type;
   const explicit = explicitCategory(text, names);
-  // 无金额 → 不是记账（问句/叙述，如「这个月奶茶一共花了多少」），直接返回 amount=0，
-  // 不调模型，避免把问句误记成一笔 0 元账单
+
+  // 问句（如「这个月奶茶花了多少」）→ 走查询模式：返回 kind:'query' 给前端调 /flows/query
+  if (isQuery(text)) {
+    const desc = extractDescription(text);
+    const fbCat = desc && names.find((n) => desc.includes(n)) || (names.includes("其他") ? "其他" : names[0] || "");
+    return buildResult({
+      type: "expense", amount: 0, category: fbCat,
+      description: desc || text.trim().slice(0, 20),
+      payment_method: "", source: "query", kind: "query",
+    });
+  }
+
+  // 无金额 → 不是记账（叙述/单个数字被误识别）
   if (extractAmount(text) <= 0) {
     const isIncome = /(工资|薪资|收入|到账|入账|收款|报销|红包|奖金)/.test(text);
     const fallbackCat = isIncome
@@ -278,7 +317,6 @@ export async function parseFlowText(text, categories) {
     const sys = `你是记账助手。把用户的自然语言转成JSON：{"type":"expense或income","amount":数字,"category":"分类","description":"简述","payment_method":"支付方式或空"}。
 分类只能从这些里选最接近的一个：${names.join("、")}。
 ${DISAMBIGUATION}
-description 只写消费名/商户名（如「滴滴打车」），不要带金额、数字、日期和多余补充说明。
 默认为支出(expense)，收到/工资/红包收入/报销等为收入(income)。只输出JSON。`;
     const content = await chat(
       [
@@ -288,6 +326,8 @@ description 只写消费名/商户名（如「滴滴打车」），不要带金�
       { json: true }
     );
     const obj = JSON.parse(content);
+    // description 用规则化提取（去掉金额/动词/日期，保留消费名+地点）
+    obj.description = extractDescription(text) || obj.description || "";
     const result = normalize(obj, names, "ai", text, explicit);
     // 显式指定分类时，类型也跟着该分类走（避免「数码」被当成支出/收入的错配）
     if (explicit && catType(explicit)) result.type = catType(explicit);

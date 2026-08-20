@@ -383,22 +383,18 @@ const mergeTargets = computed(() => {
 .seg.sm button.on { background: var(--surface); color: var(--text); font-weight: 600; }
 .modal-body { padding: 8px 16px 16px; }
 .flow-list { display: flex; flex-direction: column; gap: 6px; }
+/* 流水行：flex 布局（5 项：日期/名称/支付/金额/按钮），actions 强制不压缩 → 改/删永远显示完整 */
 .flow-row {
-  /* 去掉分类列（弹窗标题已显示分类），5 列：日期 名称 支付 金额 按钮 */
-  display: grid; grid-template-columns: 80px minmax(0, 1fr) auto auto auto; gap: 8px; align-items: center;
+  display: flex; align-items: center; gap: 8px;
   padding: 7px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); font-size: 12.5px;
 }
-.flow-name { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.flow-cat, .flow-pay { font-size: 12px; }
-.flow-amt { font-weight: 700; min-width: 80px; text-align: right; }
+.flow-date { width: 78px; flex-shrink: 0; }
+.flow-name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--text); }
+.flow-pay { width: 64px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.flow-amt { width: 72px; flex-shrink: 0; text-align: right; font-weight: 700; }
 .flow-amt.expense { color: var(--expense); }
 .flow-amt.income { color: var(--income); }
-.flow-row-actions {
-  display: inline-flex; gap: 4px;
-  flex-shrink: 0;            /* 不允许被 grid 压缩，保证「改」「删」永远完整显示在同一行 */
-  white-space: nowrap;
-  justify-self: end;         /* 靠右，不挤前面的金额 */
-}
+.flow-row-actions { flex-shrink: 0; display: inline-flex; gap: 4px; white-space: nowrap; }
 .row-btn {
   border: 1px solid var(--border); background: var(--surface); color: var(--text-2);
   font-size: 12px; padding: 3px 10px; border-radius: 5px; cursor: pointer; line-height: 1.2;
@@ -410,7 +406,6 @@ const mergeTargets = computed(() => {
   font-weight: 700;
 }
 .row-btn.del:hover { background: var(--expense, #ef4444); color: #fff; }
-.flow-name { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .flow-cat { font-size: 12px; }
 .flow-amt { font-weight: 700; min-width: 80px; text-align: right; }
 .flow-amt.expense { color: var(--expense); }
