@@ -171,13 +171,24 @@ const RULE_EXPENSE = [
   { cat: "捐赠", kw: ["捐赠", "捐款", "公益", "慈善", "施舍"] },
 ];
 
-// 金额抽取：支持标准小数，以及口语「58块5」「12元5角」→ 58.5 / 12.5
+// 金额抽取：优先级
+//   1) ¥/￥ 符号后的数字
+//   2) X元 / X块 / X块钱
+//   3) 金额动词后的数字（工资/到账/实付/支付/付款/花费/花了/消费/扣款/缴费/充值/买了/交了）
+//   4) 兜底第一个数字
+// 修复"8月15号工资到账12000"被取成 8 的问题（日期数字被误当金额）
 function extractAmount(text) {
-  const t = String(text).replace(/[块元]/g, ".");
-  const dec = t.match(/(\d+\.\d+)/);
-  if (dec) return Number(dec[1]);
-  const int = String(text).match(/(\d+(?:\.\d+)?)/);
-  return int ? Number(int[1]) : 0;
+  const t = String(text);
+  const sym = t.match(/[¥￥]\s*(\d+(?:\.\d{1,2})?)/);
+  if (sym) return Number(sym[1]);
+  const yuan = t.match(/(\d+(?:\.\d{1,2})?)\s*(?:元|块钱|块|元整|毛|角)/);
+  if (yuan) return Number(yuan[1]);
+  const kw = t.match(
+    /(?:工资|薪资|到账|实付|实际支付|支付|付款|花费|花了|消费|扣款|支出|买了|缴费|充值|交了)\s*(?:了)?\s*(\d+(?:\.\d{1,2})?)/
+  );
+  if (kw) return Number(kw[1]);
+  const first = t.match(/(\d+(?:\.\d{1,2})?)/);
+  return first ? Number(first[1]) : 0;
 }
 
 function ruleClassify(text, names) {
@@ -245,12 +256,29 @@ export async function parseFlowText(text, categories) {
   const names = categories.map((c) => c.name);
   const catType = (name) => categories.find((c) => c.name === name)?.type;
   const explicit = explicitCategory(text, names);
+  // 无金额 → 不是记账（问句/叙述，如「这个月奶茶一共花了多少」），直接返回 amount=0，
+  // 不调模型，避免把问句误记成一笔 0 元账单
+  if (extractAmount(text) <= 0) {
+    const isIncome = /(工资|薪资|收入|到账|入账|收款|报销|红包|奖金)/.test(text);
+    const fallbackCat = isIncome
+      ? (names.includes("其它") ? "其它" : names[0] || "其他")
+      : (names.includes("其他") ? "其他" : names.find((n) => n !== "其它") || "其他");
+    return buildResult({
+      type: isIncome ? "income" : "expense",
+      amount: 0,
+      category: explicit || fallbackCat,
+      description: text.trim().slice(0, 30),
+      payment_method: "",
+      source: "noamount",
+    });
+  }
   const rule = ruleClassify(text, names);
   if (rule && rule.amount > 0 && !explicit) return buildResult(rule); // 高置信且无显式指定：不调模型
   try {
     const sys = `你是记账助手。把用户的自然语言转成JSON：{"type":"expense或income","amount":数字,"category":"分类","description":"简述","payment_method":"支付方式或空"}。
 分类只能从这些里选最接近的一个：${names.join("、")}。
 ${DISAMBIGUATION}
+description 只写消费名/商户名（如「滴滴打车」），不要带金额、数字、日期和多余补充说明。
 默认为支出(expense)，收到/工资/红包收入/报销等为收入(income)。只输出JSON。`;
     const content = await chat(
       [

@@ -15,7 +15,7 @@ const mergeDlg = ref({ open: false, source: null, targetId: "" });
 // 该分类下的流水弹窗
 const flowDlg = ref({ open: false, category: null, type: 'expense', flows: [], loading: false, total: 0, sort: 'time', order: 'desc' });
 // 修改单条流水的小弹窗
-const editDlg = ref({ open: false, flow: null, description: '', amount: '', payment_method: '' });
+const editDlg = ref({ open: false, flow: null, description: '', amount: '', payment_method: '', category: '', type: 'expense' });
 
 async function showFlows(c) {
   flowDlg.value = { open: true, category: c, type: c.type, flows: [], loading: true, total: 0, sort: 'time', order: 'desc' };
@@ -50,6 +50,8 @@ function openEditFlow(f) {
     description: f.description || '',
     amount: String(f.amount),
     payment_method: f.payment_method || '',
+    category: f.category || '',
+    type: f.type || flowDlg.value.type,
   };
 }
 async function saveEditFlow() {
@@ -62,6 +64,7 @@ async function saveEditFlow() {
       description: ed.description.trim(),
       amount: amt,
       payment_method: ed.payment_method.trim(),
+      category: ed.category.trim(),
     });
     toast('已修改');
     editDlg.value.open = false;
@@ -73,6 +76,7 @@ async function saveEditFlow() {
         description: ed.description.trim(),
         amount: amt,
         payment_method: ed.payment_method.trim(),
+        category: ed.category.trim(),
       };
     }
   } catch (e) { toast(e.message); }
@@ -313,7 +317,6 @@ const mergeTargets = computed(() => {
             <div v-for="f in sortedFlows" :key="f.id" class="flow-row">
               <span class="flow-date muted">{{ (f.flow_time||'').slice(0,10) }}</span>
               <span class="flow-name">{{ f.description || f.category }}</span>
-              <span class="flow-cat muted">{{ f.category }}</span>
               <span class="flow-pay muted" v-if="f.payment_method">{{ f.payment_method }}</span>
               <span class="flow-amt" :class="f.type">
                 {{ f.type==='expense' ? '-' : '+' }}{{ Number(f.amount).toFixed(2) }}
@@ -338,6 +341,13 @@ const mergeTargets = computed(() => {
         </label>
         <label class="field"><span>金额</span>
           <input class="input" type="number" step="0.01" v-model="editDlg.amount" placeholder="金额" />
+        </label>
+        <label class="field"><span>分类</span>
+          <select class="input" v-model="editDlg.category">
+            <option v-for="c in store.categories.filter(x => x.type === editDlg.type)" :key="c.id" :value="c.name">
+              {{ c.icon }} {{ c.name }}
+            </option>
+          </select>
         </label>
         <label class="field"><span>支付方式</span>
           <input class="input" v-model.trim="editDlg.payment_method" placeholder="支付方式（可选）" />
@@ -374,7 +384,8 @@ const mergeTargets = computed(() => {
 .modal-body { padding: 8px 16px 16px; }
 .flow-list { display: flex; flex-direction: column; gap: 6px; }
 .flow-row {
-  display: grid; grid-template-columns: 80px minmax(0, 1fr) auto auto auto auto; gap: 8px; align-items: center;
+  /* 去掉分类列（弹窗标题已显示分类），5 列：日期 名称 支付 金额 按钮 */
+  display: grid; grid-template-columns: 80px minmax(0, 1fr) auto auto auto; gap: 8px; align-items: center;
   padding: 7px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); font-size: 12.5px;
 }
 .flow-name { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
