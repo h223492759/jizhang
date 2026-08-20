@@ -290,9 +290,11 @@ CREATE TABLE IF NOT EXISTS preset_suggest (
   category       TEXT NOT NULL DEFAULT '',
   payment_method TEXT NOT NULL DEFAULT '',
   avg_amount     REAL NOT NULL DEFAULT 0,
+  last_time      TEXT NOT NULL DEFAULT '',   -- 最近一次出现时间（recent 物化，避免实时聚合 flows）
   updated_at     TEXT NOT NULL DEFAULT (datetime('now','localtime')),
   PRIMARY KEY (book_id, type, name)
 )`);
+addColumnIfMissing("preset_suggest", "last_time", "last_time TEXT NOT NULL DEFAULT ''");
 db.exec(
   "CREATE INDEX IF NOT EXISTS idx_preset_suggest_book ON preset_suggest(book_id, type)"
 );

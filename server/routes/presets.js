@@ -6,7 +6,7 @@ import { rebuildSuggest } from "../lib/suggest.js";
 const r = Router();
 r.use(auth);
 
-// 取一个名称在流水里的实时统计（count + 最近一次的分类/支付方式 + 平均金额）。
+// 取一个名称在流水里的实时统计（count + 最近一次的分类/支付方式 + 平均金额 + 最近时间）。
 // 用于"取消收藏"时把名称写回 preset_suggest，保证低频（<2次）或纯手工的名称
 // 仍能在 ×N 未收藏建议区可见，不会被"消失"。
 function flowStats(bookId, type, name) {
@@ -19,7 +19,8 @@ function flowStats(bookId, type, name) {
               (SELECT f2.payment_method FROM flows f2
                  WHERE f2.book_id=f.book_id AND f2.type=f.type AND f2.description=f.description
                  ORDER BY f2.flow_time DESC, f2.id DESC LIMIT 1) AS payment_method,
-              ROUND(AVG(f.amount), 2) AS avg_amount
+              ROUND(AVG(f.amount), 2) AS avg_amount,
+              MAX(f.flow_time) AS last_time
          FROM flows f
         WHERE f.book_id=? AND f.type=? AND f.description=?`
     )
@@ -29,16 +30,17 @@ function flowStats(bookId, type, name) {
     category: r?.category || "",
     payment_method: r?.payment_method || "",
     avg_amount: r?.avg_amount || 0,
+    last_time: r?.last_time ? String(r.last_time).slice(0, 19) : "",
   };
 }
 
-// 把一个名称写回 preset_suggest（保证取消收藏后仍可见）
-function upsertSuggest(bookId, type, name, category, payment_method, avg_amount, cnt) {
+// 把一个名称写回 preset_suggest（保证取消收藏后仍可见；带最近时间用于 recent 物化）
+function upsertSuggest(bookId, type, name, category, payment_method, avg_amount, cnt, last_time) {
   db.prepare(
     `INSERT OR REPLACE INTO preset_suggest
-       (book_id, type, name, count, category, payment_method, avg_amount, updated_at)
-     VALUES (?,?,?,?,?,?,?, datetime('now','localtime'))`
-  ).run(bookId, type, name, cnt, category || "", payment_method || "", avg_amount || 0);
+       (book_id, type, name, count, category, payment_method, avg_amount, last_time, updated_at)
+     VALUES (?,?,?,?,?,?,?,?, datetime('now','localtime'))`
+  ).run(bookId, type, name, cnt, category || "", payment_method || "", avg_amount || 0, last_time || "");
 }
 
 /**
@@ -83,30 +85,20 @@ r.get(
       )
       .all({ bookId: req.bookId, type, limit });
 
-    // 最近用过的名称：用 CTE 先取最近 500 条再 GROUP BY（避免全表聚合慢），
-    // 排除已收藏与已隐藏改 LEFT JOIN+IS NULL；limit 默认 12（recent 本来只显示最近几个）
+    // 最近用过的名称：**物化读取**——直接查 preset_suggest 的 last_time 排序，
+    // 不再实时聚合 flows（方案 A：rebuildSuggest 时已写入 MAX(flow_time)）。
     const recent = db
       .prepare(
-        `WITH recent_flows AS (
-           SELECT description, type, flow_time, category, payment_method
-             FROM flows
-            WHERE book_id=@bookId AND type=@type AND TRIM(description) <> ''
-            ORDER BY flow_time DESC
-            LIMIT 500
-         )
-         SELECT r.description AS name, MAX(r.flow_time) AS last_time,
-                (SELECT f2.category FROM flows f2
-                   WHERE f2.book_id=@bookId AND f2.type=@type AND f2.description=r.description
-                   ORDER BY f2.flow_time DESC, f2.id DESC LIMIT 1) AS category,
-                (SELECT f2.payment_method FROM flows f2
-                   WHERE f2.book_id=@bookId AND f2.type=@type AND f2.description=r.description
-                   ORDER BY f2.flow_time DESC, f2.id DESC LIMIT 1) AS payment_method
-           FROM recent_flows r
-           LEFT JOIN presets     p ON p.book_id=@bookId AND p.type=@type AND p.name=r.description
-           LEFT JOIN hidden_names h ON h.book_id=@bookId AND h.type=@type AND h.name=r.description
-          WHERE p.id IS NULL AND h.name IS NULL
-          GROUP BY r.description
-          ORDER BY last_time DESC
+        `SELECT s.name, s.last_time,
+                s.category, s.payment_method, s.avg_amount
+           FROM preset_suggest s
+           LEFT JOIN presets     p ON p.book_id=s.book_id AND p.type=s.type AND p.name=s.name
+           LEFT JOIN hidden_names h ON h.book_id=s.book_id AND h.type=s.type AND h.name=s.name
+          WHERE s.book_id=@bookId AND s.type=@type
+            AND s.last_time <> ''
+            AND p.id IS NULL
+            AND h.name IS NULL
+          ORDER BY s.last_time DESC
           LIMIT @limit`
       )
       .all({ bookId: req.bookId, type, limit });
@@ -120,7 +112,14 @@ r.get(
       )
       .all(req.bookId, type);
 
-    res.json({ presets, frequent, recent, hidden });
+    // synced_at：安卓端用它判断本地镜像是否过期（超过 5 分钟就后台刷新）
+    res.json({
+      presets,
+      frequent,
+      recent,
+      hidden,
+      synced_at: new Date().toISOString(),
+    });
   })
 );
 

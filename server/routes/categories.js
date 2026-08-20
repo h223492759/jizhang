@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { auth, requireBook, wrap } from "../mw.js";
+import { rebuildSuggest } from "../lib/suggest.js";
 
 const r = Router();
 r.use(auth);
@@ -86,6 +87,8 @@ r.put(
       db.prepare(
         "UPDATE flows SET category=? WHERE book_id=? AND category=? AND type=?"
       ).run(name.trim(), req.bookId, cat.name, cat.type);
+      // 分类改名后，preset_suggest 里的 category 是旧名 → 立即重建保持一致
+      try { rebuildSuggest(req.bookId); } catch (_) {}
     }
     res.json({ ok: true });
   })

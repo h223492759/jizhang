@@ -25,7 +25,8 @@ export function rebuildSuggest(bookId) {
               (SELECT f2.payment_method FROM flows f2
                  WHERE f2.book_id=f.book_id AND f2.type=f.type AND f2.description=f.description
                  ORDER BY f2.flow_time DESC, f2.id DESC LIMIT 1) AS payment_method,
-              ROUND(AVG(f.amount), 2) AS avg_amount
+              ROUND(AVG(f.amount), 2) AS avg_amount,
+              MAX(f.flow_time) AS last_time
          FROM flows f
         WHERE f.book_id=@bookId AND TRIM(f.description) <> ''
         GROUP BY f.description, f.type
@@ -35,8 +36,8 @@ export function rebuildSuggest(bookId) {
 
   const ins = db.prepare(
     `INSERT OR REPLACE INTO preset_suggest
-       (book_id, type, name, count, category, payment_method, avg_amount, updated_at)
-     VALUES (?,?,?,?,?,?,?, datetime('now','localtime'))`
+       (book_id, type, name, count, category, payment_method, avg_amount, last_time, updated_at)
+     VALUES (?,?,?,?,?,?,?,?, datetime('now','localtime'))`
   );
   // 清理：count >= 1 但名字已完全离开流水的（"流水全删了"的脏数据）
   const cleanup = db.prepare(
@@ -61,7 +62,8 @@ export function rebuildSuggest(bookId) {
         r.count,
         r.category || "",
         r.payment_method || "",
-        r.avg_amount || 0
+        r.avg_amount || 0,
+        (r.last_time || "").slice(0, 19) // "YYYY-MM-DD HH:mm:ss"
       );
     }
   });
