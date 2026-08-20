@@ -18,6 +18,7 @@ import recurringRoutes from "./routes/recurring.js";
 import billRoutes from "./routes/bills.js";
 import savingsRoutes from "./routes/savings.js";
 import walletRoutes from "./routes/wallets.js";
+import syncRoutes from "./routes/sync.js";
 import { logOp } from "./oplog.js";
 import oplogRoutes from "./oplog.js";
 import { generateDueRecurring } from "./lib/recurring.js";
@@ -42,20 +43,31 @@ for (const b of db.prepare("SELECT id FROM books").all()) {
   }
 }
 
-// 常用名称建议：启动全量重建一次 + 每 24h 每日自动扫描一次
-// （流水保存时已由 flows/import/recurring 路由触发单账本重建，这里是兜底与"每日一次"）
+// 常用名称建议：启动全量重建一次 + 每天凌晨 1 点（北京时间）定时重建。
+// 流水保存/删除/导入不再触发单账本重建（用户：没那么高频，只保留定时）。
+// 分类改名 / 手动扫描（POST /presets/scan、/rescan）仍即时触发。
 try {
   rebuildAllSuggest();
 } catch (e) {
   console.warn("[suggest] 启动重建失败:", e.message);
 }
-setInterval(() => {
+// 计算到下一个北京时间 01:00 的毫秒数
+function msUntilNextBjt1am() {
+  const now = new Date();
+  const bjt = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
+  const next = new Date(bjt);
+  next.setHours(1, 0, 0, 0);
+  if (next <= bjt) next.setDate(next.getDate() + 1);
+  return Math.max(1000, next - bjt);
+}
+setTimeout(function scheduleDaily() {
   try {
     rebuildAllSuggest();
   } catch (e) {
     console.warn("[suggest] 每日重建失败:", e.message);
   }
-}, 24 * 3600 * 1000);
+  setTimeout(scheduleDaily, 24 * 3600 * 1000);
+}, msUntilNextBjt1am());
 
 // ---------- API ----------
 app.get("/api/health", (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
@@ -75,6 +87,7 @@ app.use("/api/recurring", recurringRoutes);
 app.use("/api/bills", billRoutes);
 app.use("/api/savings", savingsRoutes);
 app.use("/api/wallets", walletRoutes);
+app.use("/api/sync", syncRoutes);
 // 写操作审计（响应后记录），挂所有 API 路由之后
 app.use("/api", logOp);
 app.use("/api/oplogs", oplogRoutes);

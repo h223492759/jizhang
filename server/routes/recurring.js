@@ -143,7 +143,6 @@ r.post(
   requireBook,
   wrap((req, res) => {
     const n = generateDueRecurring(req.bookId, new Date());
-    if (n > 0) rebuildSuggest(req.bookId); // 流水有变动 → 触发一次建议重建
     res.json({ ok: true, generated: n });
   })
 );

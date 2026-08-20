@@ -58,16 +58,13 @@ const isPinned = computed(() =>
 // 未选分类时显示全部。收藏排最前，高频/最近随后。
 const sugExpanded = ref(false);
 const MAX_CHIPS = 12;
+// 与「常用名称」管理页一致：只用 ★ 已收藏 + ×N 未收藏建议（不再混 recent）
 const sugChips = computed(() => {
   const cat = form.value.category;
   const filter = (arr) => !cat ? arr : arr.filter((p) => !p.category || p.category === cat);
   const base = [];
   for (const p of filter(sug.value.presets || [])) base.push({ name: p.name, preset: true, id: p.id });
   for (const f of filter(sug.value.frequent || [])) base.push({ name: f.name, preset: false, count: f.count });
-  const seen = new Set(base.map((b) => b.name));
-  for (const f of filter(sug.value.recent || [])) {
-    if (!seen.has(f.name)) { seen.add(f.name); base.push({ name: f.name, preset: false, count: f.count }); }
-  }
   return { list: sugExpanded.value ? base : base.slice(0, MAX_CHIPS), overflow: base.length > MAX_CHIPS };
 });
 

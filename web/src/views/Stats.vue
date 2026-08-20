@@ -77,18 +77,17 @@ const PALETTE = ["#6366f1","#ef4444","#f59e0b","#10b981","#3b82f6","#ec4899","#8
 // colorMap：可选 { 名称: 颜色 }，用于按用户颜色给归属饼图上色
 function pie(title, data, colorMap) {
   return {
-    title: { text: title, left: "center", textStyle: { fontSize: 14 } },
+    title: { text: title, left: "center", top: 0, textStyle: { fontSize: 14 } },
     tooltip: { trigger: "item", formatter: "{b}: ¥{c} ({d}%)" },
-    // legend 用 plain（不分页/不折叠）—— 用户要求分类标注全部显示；
-    // 分类多时 legend 会自然换行多行，chart 高度已加大到 520 给空间
-    legend: { bottom: 6, type: "plain", width: "96%", itemWidth: 10, itemHeight: 10, textStyle: { fontSize: 11 } },
+    // legend 放上方（用户要求），全部显示不分页；分类多时自然换行多行
+    legend: { top: 24, type: "plain", width: "96%", itemWidth: 10, itemHeight: 10, textStyle: { fontSize: 11 } },
     color: PALETTE,
     series: [{
       name: title,
       type: "pie",
       // 饼图水平方向尽量拉长、垂直方向收紧，label 横向更紧凑
       radius: ["18%", "46%"],
-      center: ["50%", "38%"],
+      center: ["50%", "56%"],
       cursor: "pointer",
       avoidLabelOverlap: true,
       itemStyle: { borderRadius: 4, borderColor: "transparent", borderWidth: 1 },

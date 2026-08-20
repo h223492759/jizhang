@@ -390,10 +390,10 @@ const mergeTargets = computed(() => {
 }
 .row-btn:hover { border-color: var(--primary); color: var(--primary); }
 .row-btn.del {
-  background: var(--expense, #ef4444); color: #fff; border-color: var(--expense, #ef4444);
+  background: transparent; color: var(--expense, #ef4444); border-color: var(--expense, #ef4444);
   font-weight: 700;
 }
-.row-btn.del:hover { background: #dc2626; border-color: #dc2626; color: #fff; }
+.row-btn.del:hover { background: var(--expense, #ef4444); color: #fff; }
 .flow-name { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .flow-cat { font-size: 12px; }
 .flow-amt { font-weight: 700; min-width: 80px; text-align: right; }

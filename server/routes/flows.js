@@ -2,7 +2,6 @@ import { Router } from "express";
 import dayjs from "dayjs";
 import { db } from "../db.js";
 import { auth, requireBook, wrap } from "../mw.js";
-import { rebuildSuggest } from "../lib/suggest.js";
 
 const r = Router();
 r.use(auth);
@@ -265,8 +264,6 @@ r.post(
         source,
         client_uuid: uuid || null,
       });
-    // 流水有变动 → 触发一次常用名称建议重建（保存后自动扫描）
-    rebuildSuggest(req.bookId);
     res.json({ id: info.lastInsertRowid });
   })
 );
@@ -347,8 +344,6 @@ export function insertMany(bookId, userId, defaultAttr, items, defaultUid = null
     return { imported, skipped };
   });
   const result = tx(items);
-  // 批量导入后同样触发一次建议重建（保存后自动扫描）
-  rebuildSuggest(bookId);
   return result;
 }
 
@@ -391,8 +386,6 @@ r.put(
       attrUid,
       cur.id
     );
-    // 流水有变动 → 触发一次常用名称建议重建
-    rebuildSuggest(req.bookId);
     res.json({ ok: true });
   })
 );
@@ -405,8 +398,6 @@ r.delete(
       req.params.id,
       req.bookId
     );
-    // 流水有变动 → 触发一次常用名称建议重建
-    rebuildSuggest(req.bookId);
     res.json({ ok: true });
   })
 );
