@@ -146,6 +146,20 @@ r.delete(
   })
 );
 
+// 一批量取消收藏：把某类型下所有 ★ 全部移回 ×N 未收藏建议区（不是删除，流水不受影响）。
+// 用于一次性清理历史扫描残留（比如 0857 那版自动入收藏留下的 ★）。
+r.delete(
+  "/all",
+  requireBook,
+  wrap((req, res) => {
+    const type = req.query.type === "income" ? "income" : "expense";
+    const info = db
+      .prepare("DELETE FROM presets WHERE book_id=? AND type=?")
+      .run(req.bookId, type);
+    res.json({ ok: true, deleted: info.changes });
+  })
+);
+
 // 取消显示（第三态）：从已收藏移除 + 记入 hidden_names，页面置底灰色展示
 r.post(
   "/hide",

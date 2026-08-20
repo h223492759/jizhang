@@ -66,6 +66,23 @@ async function submit(type) {
   }
 }
 
+// 一批量取消收藏：把某类型下所有 ★ 全部移回 ×N 未收藏建议区
+// （不是删除，流水不受影响）。用于一次性清理历史扫描残留。
+async function unpinAll(type) {
+  const count = sections[type].presets.length;
+  if (count === 0) return toast("该类型下没有已收藏名称");
+  if (!confirm(
+    `确认取消「${TYPE_META[type].label}」下全部 ${count} 个已收藏名称？\n这些名称会移回「未收藏建议」区（不会删除任何流水），需要时再单独点 ★ 即可重新加入收藏。`
+  )) return;
+  try {
+    await api.delete("/presets/all", { params: { type } });
+    toast("已全部取消收藏");
+    await load();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
 // 点击 chip 切换状态
 async function toggle(type, it) {
   try {
@@ -184,8 +201,13 @@ const grouped = computed(() => {
 
     <div class="cols">
       <div class="card" v-for="type in types" :key="type">
-        <div class="section-title">
-          {{ TYPE_META[type].icon }} {{ TYPE_META[type].label }} · 常用名称
+        <div class="section-title-row">
+          <div class="section-title">
+            {{ TYPE_META[type].icon }} {{ TYPE_META[type].label }} · 常用名称
+          </div>
+          <button class="btn btn-mini" :disabled="!sections[type].presets.length" @click="unpinAll(type)">
+            全部取消收藏
+          </button>
         </div>
 
         <!-- 添加表单 -->
@@ -244,6 +266,10 @@ const grouped = computed(() => {
 <style scoped>
 .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; align-items: start; }
 .section-title { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+.section-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.btn-mini { font-size: 12px; padding: 4px 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); border-radius: 6px; cursor: pointer; }
+.btn-mini:hover:not(:disabled) { border-color: var(--expense, #ef4444); color: var(--expense, #ef4444); }
+.btn-mini:disabled { opacity: .4; cursor: not-allowed; }
 .section-sub { font-size: 13px; font-weight: 600; color: var(--text-2); margin: 18px 0 8px; }
 .form-row { align-items: center; flex-wrap: wrap; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -258,12 +284,12 @@ const grouped = computed(() => {
 .chip .cnt { font-style: normal; opacity: .55; margin-right: 5px; font-size: 11.5px; }
 .chip .x {
   position: absolute; top: -7px; right: -7px; background: var(--expense, #ef4444); color: #fff;
-  border: none; padding: 0; border-radius: 50%; width: 16px; height: 16px;
+  border: none; padding: 0; border-radius: 50%; width: 18px; height: 18px;
   display: inline-flex; align-items: center; justify-content: center;
-  font-size: 11px; font-style: normal; cursor: pointer; line-height: 1;
-  box-shadow: 0 1px 3px rgba(0,0,0,.3); opacity: 0; transition: opacity .15s;
+  font-size: 12px; font-style: normal; cursor: pointer; line-height: 1;
+  box-shadow: 0 1px 3px rgba(0,0,0,.3);
+  transition: transform .15s;
 }
-.chip:hover .x { opacity: 1; }
 .chip .x:hover { transform: scale(1.15); }
 .chip-pin { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
 /* chip-freq 使用默认（中性）样式，与 chip-pin 形成对照 */
