@@ -303,9 +303,11 @@ CREATE TABLE IF NOT EXISTS hidden_names (
   book_id    INTEGER NOT NULL,
   type       TEXT NOT NULL,
   name       TEXT NOT NULL,
+  category   TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
   PRIMARY KEY (book_id, type, name)
 )`);
+addColumnIfMissing("hidden_names", "category", "category TEXT NOT NULL DEFAULT ''");
 
 // 资金细则可带一个生效日期（用于回填历史资产），空=当前
 addColumnIfMissing("savings_items", "as_of", "as_of TEXT NOT NULL DEFAULT ''");

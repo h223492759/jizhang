@@ -126,9 +126,31 @@ async function restore(type, h) {
   }
 }
 
-function hiddenOf(type) {
-  return sections[type].hidden || [];
-}
+// 已取消显示按分类分组（与主列表一致的分桶方式），让"隐藏"也按分类呈现
+const groupedHidden = computed(() => {
+  const out = {};
+  for (const t of types) {
+    for (const h of sections[t].hidden || []) {
+      const cat = h.category || "未分类";
+      out[t] = out[t] || {};
+      const grp = (out[t][cat] = out[t][cat] || { category: cat, items: [] });
+      if (grp.items.some((x) => x.name === h.name)) return;
+      grp.items.push(h);
+    }
+  }
+  const orderMap = {};
+  store.categories.forEach((c, i) => { orderMap[c.name] = i; });
+  const res = {};
+  for (const t of types) {
+    const arr = Object.values(out[t] || {}).sort((a, b) => {
+      if (a.category === "未分类") return 1;
+      if (b.category === "未分类") return -1;
+      return (orderMap[a.category] ?? 1e9) - (orderMap[b.category] ?? 1e9);
+    });
+    res[t] = arr;
+  }
+  return res;
+});
 
 function presetTip(it) {
   const parts = [];
@@ -247,15 +269,23 @@ const grouped = computed(() => {
         </div>
         <div v-else class="muted small-pad">{{ loading ? "加载中…" : "还没有常用名称。在上方表单添加，或记几笔账后看下方未收藏建议。" }}</div>
 
-        <!-- 第三态：已取消显示（置底灰色，点击恢复） -->
-        <div v-if="hiddenOf(type).length" class="hidden-sec">
-          <div class="section-sub">已取消显示（点击恢复）</div>
-          <div class="chips">
-            <span
-              v-for="h in hiddenOf(type)" :key="'h' + h.name"
-              class="chip chip-hidden" :title="'点击恢复显示'"
-              @click="restore(type, h)"
-            >{{ h.name }}</span>
+        <!-- 第三态：已取消显示（按分类分组，置底灰色，点击恢复） -->
+        <div v-if="groupedHidden[type].length" class="hidden-sec">
+          <div class="section-sub">已取消显示（按分类分组；点击恢复）</div>
+          <div class="cat-groups">
+            <div class="cat-group" v-for="g in groupedHidden[type]" :key="'h-' + g.category">
+              <div class="cat-group-head">
+                <span class="cat-group-name">{{ g.category }}</span>
+                <span class="muted small">{{ g.items.length }} 个</span>
+              </div>
+              <div class="chips">
+                <span
+                  v-for="h in g.items" :key="'h-' + g.category + '-' + h.name"
+                  class="chip chip-hidden" :title="'点击恢复显示'"
+                  @click="restore(type, h)"
+                >{{ h.name }}</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
