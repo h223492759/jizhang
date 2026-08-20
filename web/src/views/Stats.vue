@@ -79,22 +79,22 @@ function pie(title, data, colorMap) {
   return {
     title: { text: title, left: "center", textStyle: { fontSize: 14 } },
     tooltip: { trigger: "item", formatter: "{b}: ¥{c} ({d}%)" },
-    // legend 用 plain（不分页/不滚动）—— 用户要求分类标注全部显示；
-    // 分类多时 legend 会自然换行多行，chart 高度已加大到 480 给空间
+    // legend 用 plain（不分页/不折叠）—— 用户要求分类标注全部显示；
+    // 分类多时 legend 会自然换行多行，chart 高度已加大到 520 给空间
     legend: { bottom: 6, type: "plain", width: "96%", itemWidth: 10, itemHeight: 10, textStyle: { fontSize: 11 } },
     color: PALETTE,
     series: [{
       name: title,
       type: "pie",
-      // 缩小饼图半径、往上偏，给底部 legend 留足够空间（避免引线拉到画面外）
-      radius: ["22%", "44%"],
-      center: ["50%", "40%"],
+      // 饼图水平方向尽量拉长、垂直方向收紧，label 横向更紧凑
+      radius: ["18%", "46%"],
+      center: ["50%", "38%"],
       cursor: "pointer",
       avoidLabelOverlap: true,
-      itemStyle: { borderRadius: 6, borderColor: "transparent", borderWidth: 2 },
-      // 引线缩短：length/length2 限制在 6/6，避免拉太远
-      labelLine: { length: 6, length2: 6 },
-      label: { formatter: "{b}\n{d}%", fontSize: 11 },
+      itemStyle: { borderRadius: 4, borderColor: "transparent", borderWidth: 1 },
+      // label 名称 + 百分比放一行（紧凑），引线再缩短
+      label: { formatter: "{b} {d}%", fontSize: 10.5, edgeDistance: 2 },
+      labelLine: { length: 4, length2: 6 },
       data: data.map((d) => ({
         name: d.name,
         value: Number(d.value.toFixed(2)),
@@ -270,7 +270,7 @@ function pct(f) {
           <span class="muted small">💡 点击饼图扇区或下方标注查看明细</span>
           <button v-if="category.length" class="btn btn-mini clear-btn" @click="clearPieLegend">全部取消</button>
         </div>
-        <EChart ref="pieChart" :key="'pie-' + chartKey" :option="pie('支出分类', category)" v-if="category.length" @click="onPieClick" :height="'480px'" />
+        <EChart ref="pieChart" :key="'pie-' + chartKey" :option="pie('支出分类', category)" v-if="category.length" @click="onPieClick" :height="'520px'" />
         <div v-if="!category.length" class="empty muted">暂无支出数据</div>
       </div>
       <div class="card">
@@ -278,7 +278,7 @@ function pct(f) {
           <span class="muted small">💡 点击饼图扇区或下方标注查看明细</span>
           <button v-if="attribution.length" class="btn btn-mini clear-btn" @click="clearAttrLegend">全部取消</button>
         </div>
-        <EChart ref="attrChart" :key="'attr-' + chartKey" :option="pie('消费归属', attribution, attrColorMap)" v-if="attribution.length" @click="onPieClick" :height="'480px'" />
+        <EChart ref="attrChart" :key="'attr-' + chartKey" :option="pie('消费归属', attribution, attrColorMap)" v-if="attribution.length" @click="onPieClick" :height="'520px'" />
         <div v-if="!attribution.length" class="empty muted">暂无数据</div>
       </div>
       <div class="card daily-card">

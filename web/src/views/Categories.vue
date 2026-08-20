@@ -385,10 +385,15 @@ const mergeTargets = computed(() => {
 .flow-row-actions { display: inline-flex; gap: 4px; }
 .row-btn {
   border: 1px solid var(--border); background: var(--surface); color: var(--text-2);
-  font-size: 12px; padding: 2px 8px; border-radius: 5px; cursor: pointer; line-height: 1.2;
+  font-size: 12px; padding: 3px 10px; border-radius: 5px; cursor: pointer; line-height: 1.2;
+  min-width: 30px;
 }
 .row-btn:hover { border-color: var(--primary); color: var(--primary); }
-.row-btn.del:hover { border-color: var(--expense, #ef4444); color: var(--expense, #ef4444); }
+.row-btn.del {
+  background: var(--expense, #ef4444); color: #fff; border-color: var(--expense, #ef4444);
+  font-weight: 700;
+}
+.row-btn.del:hover { background: #dc2626; border-color: #dc2626; color: #fff; }
 .flow-name { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .flow-cat { font-size: 12px; }
 .flow-amt { font-weight: 700; min-width: 80px; text-align: right; }

@@ -83,20 +83,29 @@ r.get(
       )
       .all({ bookId: req.bookId, type, limit });
 
-    const lastOf = (field) =>
-      `(SELECT f2.${field} FROM flows f2
-         WHERE f2.book_id=f.book_id AND f2.type=f.type AND f2.description=f.description
-         ORDER BY f2.flow_time DESC, f2.id DESC LIMIT 1)`;
+    // 最近用过的名称：用 CTE 先取最近 500 条再 GROUP BY（避免全表聚合慢），
+    // 排除已收藏与已隐藏改 LEFT JOIN+IS NULL；limit 默认 12（recent 本来只显示最近几个）
     const recent = db
       .prepare(
-        `SELECT f.description AS name, MAX(f.flow_time) AS last_time,
-                ${lastOf("category")} AS category,
-                ${lastOf("payment_method")} AS payment_method
-           FROM flows f
-          WHERE f.book_id=@bookId AND f.type=@type AND TRIM(f.description) <> ''
-            AND f.description NOT IN (SELECT name FROM presets WHERE book_id=@bookId AND type=@type)
-            AND f.description NOT IN (SELECT name FROM hidden_names WHERE book_id=@bookId AND type=@type)
-          GROUP BY f.description
+        `WITH recent_flows AS (
+           SELECT description, type, flow_time, category, payment_method
+             FROM flows
+            WHERE book_id=@bookId AND type=@type AND TRIM(description) <> ''
+            ORDER BY flow_time DESC
+            LIMIT 500
+         )
+         SELECT r.description AS name, MAX(r.flow_time) AS last_time,
+                (SELECT f2.category FROM flows f2
+                   WHERE f2.book_id=@bookId AND f2.type=@type AND f2.description=r.description
+                   ORDER BY f2.flow_time DESC, f2.id DESC LIMIT 1) AS category,
+                (SELECT f2.payment_method FROM flows f2
+                   WHERE f2.book_id=@bookId AND f2.type=@type AND f2.description=r.description
+                   ORDER BY f2.flow_time DESC, f2.id DESC LIMIT 1) AS payment_method
+           FROM recent_flows r
+           LEFT JOIN presets     p ON p.book_id=@bookId AND p.type=@type AND p.name=r.description
+           LEFT JOIN hidden_names h ON h.book_id=@bookId AND h.type=@type AND h.name=r.description
+          WHERE p.id IS NULL AND h.name IS NULL
+          GROUP BY r.description
           ORDER BY last_time DESC
           LIMIT @limit`
       )
