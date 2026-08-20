@@ -5,10 +5,16 @@ import { db } from "../db.js";
  * 触发时机（避免每次打开页面实时聚合）：
  *   1. 流水 增/删/改/导入 成功后 → rebuildSuggest(bookId)
  *   2. 服务启动 + 每 24h → rebuildAllSuggest()
+ *   3. 用户在页面点"立即刷新建议" → POST /presets/rescan → rebuildSuggest(req.bookId)
  * 页面 GET /presets 直接读 preset_suggest 表，占用极小（每账本每名称一行）。
+ *
+ * 重建策略（修复"取消收藏后名称消失"的 bug）：
+ *   - **count = 0**（手动取消收藏产生的，没有任何流水）：永久保留，永不删除。
+ *   - **count >= 1** 且名字已不在流水中：清理掉（属于"流水被删干净了"的脏数据）。
+ *   - 来自流水的（count >= 1）：UPSERT 刷新分类/支付方式/均价/count。
+ * 不再使用 DELETE-all-then-INSERT 的粗暴方式，否则 count=0 的手动项会被一并清掉。
  */
 
-// 重建单个账本的建议：从 flows 聚合（出现 ≥2 次）后整体覆盖 preset_suggest
 export function rebuildSuggest(bookId) {
   const rows = db
     .prepare(
@@ -23,18 +29,30 @@ export function rebuildSuggest(bookId) {
          FROM flows f
         WHERE f.book_id=@bookId AND TRIM(f.description) <> ''
         GROUP BY f.description, f.type
-       HAVING COUNT(*) >= 2`
+       HAVING COUNT(*) >= 1`
     )
     .all({ bookId });
 
-  const del = db.prepare("DELETE FROM preset_suggest WHERE book_id=?");
   const ins = db.prepare(
     `INSERT OR REPLACE INTO preset_suggest
        (book_id, type, name, count, category, payment_method, avg_amount, updated_at)
      VALUES (?,?,?,?,?,?,?, datetime('now','localtime'))`
   );
+  // 清理：count >= 1 但名字已完全离开流水的（"流水全删了"的脏数据）
+  const cleanup = db.prepare(
+    `DELETE FROM preset_suggest
+      WHERE book_id=@bookId AND count >= 1
+        AND NOT EXISTS (
+          SELECT 1 FROM flows f
+          WHERE f.book_id=preset_suggest.book_id
+            AND f.type=preset_suggest.type
+            AND f.description=preset_suggest.name
+            AND TRIM(f.description) <> ''
+        )`
+  );
+
   const tx = db.transaction(() => {
-    del.run(bookId);
+    cleanup.run({ bookId });
     for (const r of rows) {
       ins.run(
         bookId,

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { auth, requireBook, wrap } from "../mw.js";
+import { rebuildSuggest } from "../lib/suggest.js";
 
 const r = Router();
 r.use(auth);
@@ -286,6 +287,16 @@ r.post(
       name
     );
     res.json({ ok: true });
+  })
+);
+
+// 立即刷新建议：手动触发当前账本的 preset_suggest 重建（正常情况由流水保存 / 每日自动扫描触发）
+r.post(
+  "/rescan",
+  requireBook,
+  wrap((req, res) => {
+    const n = rebuildSuggest(req.bookId);
+    res.json({ ok: true, scanned: n });
   })
 );
 

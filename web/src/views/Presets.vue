@@ -126,31 +126,20 @@ async function restore(type, h) {
   }
 }
 
-// 已取消显示按分类分组（与主列表一致的分桶方式），让"隐藏"也按分类呈现
-const groupedHidden = computed(() => {
-  const out = {};
-  for (const t of types) {
-    for (const h of sections[t].hidden || []) {
-      const cat = h.category || "未分类";
-      out[t] = out[t] || {};
-      const grp = (out[t][cat] = out[t][cat] || { category: cat, items: [] });
-      if (grp.items.some((x) => x.name === h.name)) return;
-      grp.items.push(h);
-    }
+// 立即刷新建议：手动触发当前账本的 preset_suggest 重建（正常由流水保存/每日扫描触发）
+const rescanning = ref(false);
+async function rescan() {
+  rescanning.value = true;
+  try {
+    await api.post("/presets/rescan");
+    await load();
+    toast("已刷新建议");
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    rescanning.value = false;
   }
-  const orderMap = {};
-  store.categories.forEach((c, i) => { orderMap[c.name] = i; });
-  const res = {};
-  for (const t of types) {
-    const arr = Object.values(out[t] || {}).sort((a, b) => {
-      if (a.category === "未分类") return 1;
-      if (b.category === "未分类") return -1;
-      return (orderMap[a.category] ?? 1e9) - (orderMap[b.category] ?? 1e9);
-    });
-    res[t] = arr;
-  }
-  return res;
-});
+}
 
 function presetTip(it) {
   const parts = [];
@@ -159,28 +148,35 @@ function presetTip(it) {
   return parts.join("  ");
 }
 
-// 按「分类」分组，每组内同时包含已收藏（★）和未收藏（×N）：
+// 按「分类」分组，每组内同时包含已收藏（★）、未收藏（×N）和已取消显示：
 // 已收藏排前，未收藏按频次降序；同名已存在则跳过（防重复）。
+// 已取消显示（hidden）放到每个分类组内部末尾，用细分隔线分开 —— 跟着分类走。
 const grouped = computed(() => {
   const out = {};
   const push = (type, item, source) => {
     const cat = item.category || "未分类";
     out[type] = out[type] || {};
-    const grp = (out[type][cat] = out[type][cat] || { category: cat, items: [] });
-    if (grp.items.some((x) => x.name === item.name)) return;
-    grp.items.push({
-      name: item.name,
-      category: cat,
-      source,
-      id: item.id,
-      count: item.count,
-      payment_method: item.payment_method,
-      amount: item.amount,
-    });
+    const grp = (out[type][cat] = out[type][cat] || { category: cat, items: [], hidden: [] });
+    if (source === "hidden") {
+      if (grp.hidden.some((x) => x.name === item.name)) return;
+      grp.hidden.push({ name: item.name, category: cat });
+    } else {
+      if (grp.items.some((x) => x.name === item.name)) return;
+      grp.items.push({
+        name: item.name,
+        category: cat,
+        source,
+        id: item.id,
+        count: item.count,
+        payment_method: item.payment_method,
+        amount: item.amount,
+      });
+    }
   };
   for (const t of types) {
     sections[t].presets.forEach((p) => push(t, p, "preset"));
     sections[t].frequent.forEach((p) => push(t, p, "freq"));
+    (sections[t].hidden || []).forEach((h) => push(t, h, "hidden"));
   }
   const res = {};
   for (const t of types) {
@@ -219,6 +215,12 @@ const grouped = computed(() => {
         <b>点右上角 × 取消显示</b>（进入最下方「已取消显示」，点击可恢复）。<br />
         流水里的最近名称在「记一笔」弹窗里推荐。
       </p>
+      <div class="toolbar">
+        <button class="btn" :disabled="rescanning" @click="rescan">
+          {{ rescanning ? "刷新中…" : "🔄 立即刷新建议" }}
+        </button>
+        <span class="muted small">建议默认由「流水保存后 / 每日一次」自动更新；点这个立即手动重建当前账本</span>
+      </div>
     </div>
 
     <div class="cols">
@@ -244,13 +246,16 @@ const grouped = computed(() => {
           <button class="btn btn-primary" @click="submit(type)">+ 加入收藏</button>
         </div>
 
-        <!-- 按分类分组的常用名称：每组内 ★ 在前，×N 在后；点击切换 -->
+        <!-- 按分类分组的常用名称：每组内 ★ 在前，×N 在后；点击切换；已取消显示跟在分类底部 -->
         <div class="section-sub">常用名称（按分类分组；点击切换收藏状态，右上角 × 取消显示）</div>
         <div v-if="grouped[type].length" class="cat-groups">
           <div class="cat-group" v-for="g in grouped[type]" :key="g.category">
             <div class="cat-group-head">
               <span class="cat-group-name">{{ g.category }}</span>
-              <span class="muted small">{{ g.items.length }} 个</span>
+              <span class="muted small">
+                {{ g.items.length }} 个
+                <template v-if="g.hidden.length">· 已隐藏 {{ g.hidden.length }}</template>
+              </span>
             </div>
             <div class="chips">
               <span
@@ -265,22 +270,12 @@ const grouped = computed(() => {
                 <button type="button" class="x" title="取消显示" @click.stop="hide(type, it)">×</button>
               </span>
             </div>
-          </div>
-        </div>
-        <div v-else class="muted small-pad">{{ loading ? "加载中…" : "还没有常用名称。在上方表单添加，或记几笔账后看下方未收藏建议。" }}</div>
-
-        <!-- 第三态：已取消显示（按分类分组，置底灰色，点击恢复） -->
-        <div v-if="groupedHidden[type].length" class="hidden-sec">
-          <div class="section-sub">已取消显示（按分类分组；点击恢复）</div>
-          <div class="cat-groups">
-            <div class="cat-group" v-for="g in groupedHidden[type]" :key="'h-' + g.category">
-              <div class="cat-group-head">
-                <span class="cat-group-name">{{ g.category }}</span>
-                <span class="muted small">{{ g.items.length }} 个</span>
-              </div>
+            <!-- 已取消显示（跟着这个分类走，用细分隔线分开，点击恢复） -->
+            <div v-if="g.hidden.length" class="hidden-in-group">
+              <div class="hidden-divider">已取消显示（{{ g.hidden.length }}）</div>
               <div class="chips">
                 <span
-                  v-for="h in g.items" :key="'h-' + g.category + '-' + h.name"
+                  v-for="h in g.hidden" :key="'h-' + g.category + '-' + h.name"
                   class="chip chip-hidden" :title="'点击恢复显示'"
                   @click="restore(type, h)"
                 >{{ h.name }}</span>
@@ -288,6 +283,7 @@ const grouped = computed(() => {
             </div>
           </div>
         </div>
+        <div v-else class="muted small-pad">{{ loading ? "加载中…" : "还没有常用名称。在上方表单添加，或记几笔账后看下方未收藏建议。" }}</div>
       </div>
     </div>
   </div>
@@ -327,7 +323,12 @@ const grouped = computed(() => {
   border-style: dashed; color: var(--text-2); opacity: .55;
 }
 .chip-hidden:hover { border-color: var(--text-2); opacity: .9; }
-.hidden-sec { margin-top: 16px; padding-top: 4px; border-top: 1px dashed var(--border); }
+/* 已取消显示嵌入每个分类组内部：细分隔线 + 略缩进 */
+.hidden-in-group { margin-top: 10px; padding-top: 4px; }
+.hidden-divider { font-size: 11px; color: var(--text-2); margin: 6px 0 4px; display: flex; align-items: center; gap: 6px; }
+.hidden-divider::before { content: ""; flex: 0 0 8px; border-top: 1px dashed var(--border); }
+.hidden-divider::after { content: ""; flex: 1; border-top: 1px dashed var(--border); }
+.toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .small-pad { padding: 4px 0 2px; }
 .cat-groups { display: flex; flex-direction: column; gap: 14px; margin-top: 4px; }
 .cat-group { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--surface-2); }
