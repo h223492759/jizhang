@@ -141,6 +141,36 @@ async function rescan() {
   }
 }
 
+// 扫描流水 → 批量加入收藏（★）：把流水里出现 ≥2 次的名称全部补回「已收藏」，
+// 已收藏的跳过。用于恢复历史常用名称（数据源就是流水）。
+const scanning = ref(false);
+async function scanToPin() {
+  if (
+    !confirm(
+      "将扫描本账本所有流水，把出现 ≥2 次的名称全部加入「已收藏」（★）？\n已收藏的会跳过，不会重复。可以之后再手动取消。"
+    )
+  )
+    return;
+  scanning.value = true;
+  try {
+    const { data } = await api.post("/presets/scan");
+    await load();
+    alert(
+      "扫描完成：\n新增收藏 " +
+        data.added +
+        " 个\n跳过已收藏 " +
+        data.skipped +
+        " 个\n（共匹配 " +
+        data.scanned +
+        " 个名称）"
+    );
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    scanning.value = false;
+  }
+}
+
 function presetTip(it) {
   const parts = [];
   if (it.payment_method) parts.push(it.payment_method);
@@ -216,6 +246,10 @@ const grouped = computed(() => {
         流水里的最近名称在「记一笔」弹窗里推荐。
       </p>
       <div class="toolbar">
+        <button class="btn btn-primary" :disabled="scanning" @click="scanToPin">
+          {{ scanning ? "扫描中…" : "🔍 扫描流水加入收藏" }}
+        </button>
+        <span class="muted small">把流水里出现 ≥2 次的名称全部补回「已收藏 ★」（已收藏跳过）——用于恢复历史常用名称</span>
         <button class="btn" :disabled="rescanning" @click="rescan">
           {{ rescanning ? "刷新中…" : "🔄 立即刷新建议" }}
         </button>

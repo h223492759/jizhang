@@ -145,6 +145,73 @@ r.post(
   })
 );
 
+// 扫描流水 → 批量加入收藏（★）。恢复历史"常用名称"：
+// 流水里出现 ≥2 次的名称，若尚未收藏则 INSERT 进 presets（带最近一次的分类/支付方式/均价）。
+// 手动触发（用户点按钮），不自动收藏；已收藏的跳过。返回 { added, skipped, scanned }。
+r.post(
+  "/scan",
+  requireBook,
+  wrap((req, res) => {
+    const rows = db
+      .prepare(
+        `SELECT f.description AS name, f.type AS type, COUNT(*) AS cnt,
+                (SELECT f2.category FROM flows f2
+                   WHERE f2.book_id=f.book_id AND f2.type=f.type AND f2.description=f.description
+                   ORDER BY f2.flow_time DESC, f2.id DESC LIMIT 1) AS category,
+                (SELECT f2.payment_method FROM flows f2
+                   WHERE f2.book_id=f.book_id AND f2.type=f.type AND f2.description=f.description
+                   ORDER BY f2.flow_time DESC, f2.id DESC LIMIT 1) AS payment_method,
+                ROUND(AVG(f.amount), 2) AS avg_amount
+           FROM flows f
+          WHERE f.book_id=@bookId AND TRIM(f.description) <> ''
+          GROUP BY f.description, f.type
+         HAVING COUNT(*) >= 2
+          ORDER BY cnt DESC`
+      )
+      .all({ bookId: req.bookId });
+
+    const existRows = db
+      .prepare("SELECT name, type FROM presets WHERE book_id=?")
+      .all(req.bookId);
+    const exist = new Set(existRows.map((x) => `${x.type}::${x.name}`));
+    const maxSortStmt = db.prepare(
+      "SELECT COALESCE(MAX(sort),0) AS s FROM presets WHERE book_id=?"
+    );
+    const ins = db.prepare(
+      `INSERT INTO presets (book_id, name, type, category, payment_method, amount, sort)
+       VALUES (?,?,?,?,?,?,?)`
+    );
+
+    let added = 0;
+    let skipped = 0;
+    const tx = db.transaction(() => {
+      for (const r of rows) {
+        const name = (r.name || "").trim();
+        const t = r.type === "income" ? "income" : "expense";
+        if (!name) continue;
+        if (exist.has(`${t}::${name}`)) {
+          skipped++;
+          continue;
+        }
+        const ms = maxSortStmt.get(req.bookId).s || 0;
+        ins.run(
+          req.bookId,
+          name,
+          t,
+          (r.category || "").trim(),
+          (r.payment_method || "").trim(),
+          Number(r.avg_amount) > 0 ? Number(r.avg_amount) : 0,
+          ms + 1
+        );
+        exist.add(`${t}::${name}`);
+        added++;
+      }
+    });
+    tx();
+    res.json({ added, skipped, scanned: rows.length });
+  })
+);
+
 r.put(
   "/:id",
   requireBook,
