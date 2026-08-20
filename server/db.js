@@ -279,6 +279,34 @@ db.exec(
   "CREATE INDEX IF NOT EXISTS idx_oplogs_book ON op_logs(book_id, id DESC)"
 );
 
+// 常用名称建议（未收藏 ×N）物化表：流水保存后 / 每日自动扫描时重建，
+// 页面读取直接查表，避免每次实时聚合（每账本每名称一行，占用极小）
+db.exec(`
+CREATE TABLE IF NOT EXISTS preset_suggest (
+  book_id        INTEGER NOT NULL,
+  type           TEXT NOT NULL,
+  name           TEXT NOT NULL,
+  count          INTEGER NOT NULL DEFAULT 0,
+  category       TEXT NOT NULL DEFAULT '',
+  payment_method TEXT NOT NULL DEFAULT '',
+  avg_amount     REAL NOT NULL DEFAULT 0,
+  updated_at     TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  PRIMARY KEY (book_id, type, name)
+)`);
+db.exec(
+  "CREATE INDEX IF NOT EXISTS idx_preset_suggest_book ON preset_suggest(book_id, type)"
+);
+
+// 已取消显示（隐藏）的常用名称：点 × 后进入，页面置底灰色展示，可恢复
+db.exec(`
+CREATE TABLE IF NOT EXISTS hidden_names (
+  book_id    INTEGER NOT NULL,
+  type       TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  PRIMARY KEY (book_id, type, name)
+)`);
+
 // 资金细则可带一个生效日期（用于回填历史资产），空=当前
 addColumnIfMissing("savings_items", "as_of", "as_of TEXT NOT NULL DEFAULT ''");
 

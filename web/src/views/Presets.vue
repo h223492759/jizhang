@@ -12,10 +12,11 @@ const TYPE_META = {
   income: { label: "收入", icon: "💰" },
 };
 
-// 两态模型：
-//   presets  = 已收藏（★），存在 presets 表
-//   frequent = 未收藏建议（×N），实时从流水聚合（count >= 2，不在 presets 里）
-// 点击 chip 即在两态间切换：已收藏 → 取消收藏；未收藏 → 加入收藏。
+// 三态模型：
+//   presets = 已收藏（★），存在 presets 表
+//   frequent = 未收藏建议（×N），读物化表 preset_suggest（保存后/每日重建）
+//   hidden  = 已取消显示（点 × 进入，置底灰色展示，可恢复）
+// 点击 chip：已收藏 ↔ 未收藏 切换；右上角 ×：取消显示。隐藏的点击 = 恢复。
 const sections = reactive({
   expense: { presets: [], frequent: [], recent: [] },
   income: { presets: [], frequent: [], recent: [] },
@@ -86,6 +87,32 @@ async function toggle(type, it) {
   }
 }
 
+// 第三态：取消显示（隐藏），进入置底「已取消显示」区
+async function hide(type, it) {
+  try {
+    await api.post("/presets/hide", { name: it.name, type });
+    toast("已取消显示");
+    await load();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+// 恢复显示：从隐藏区移除（频次 ≥2 会重新出现在未收藏建议里）
+async function restore(type, h) {
+  try {
+    await api.post("/presets/unhide", { name: h.name, type });
+    toast("已恢复显示");
+    await load();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+function hiddenOf(type) {
+  return sections[type].hidden || [];
+}
+
 function presetTip(it) {
   const parts = [];
   if (it.payment_method) parts.push(it.payment_method);
@@ -145,10 +172,12 @@ const grouped = computed(() => {
     <div class="card">
       <p class="muted" style="font-size: 13px; margin: 0 0 8px; line-height: 1.7">
         在这里管理「常用名称」。<b>记一笔时会按「支出 / 收入」分别显示成可点击的标签</b>，点一下就填好名称并带出分类、支付方式和常用金额。<br />
-        常用名称按「分类」分组。每个名称有两个状态：
-        <b>★ 已收藏</b>（点击可<b>取消收藏</b>，回到下方未收藏区）
+        常用名称按「分类」分组，每个名称有<b>三种状态</b>：
+        <b>★ 已收藏</b>（点击可<b>取消收藏</b>）
         /
-        <b>×N 未收藏</b>（实时统计的使用频次，点击可<b>加入收藏</b>）。<br />
+        <b>×N 未收藏</b>（实时统计的使用频次，点击可<b>加入收藏</b>）
+        /
+        <b>点右上角 × 取消显示</b>（进入最下方「已取消显示」，点击可恢复）。<br />
         流水里的最近名称在「记一笔」弹窗里推荐。
       </p>
     </div>
@@ -172,7 +201,7 @@ const grouped = computed(() => {
         </div>
 
         <!-- 按分类分组的常用名称：每组内 ★ 在前，×N 在后；点击切换 -->
-        <div class="section-sub">常用名称（按分类分组；点击切换收藏状态）</div>
+        <div class="section-sub">常用名称（按分类分组；点击切换收藏状态，右上角 × 取消显示）</div>
         <div v-if="grouped[type].length" class="cat-groups">
           <div class="cat-group" v-for="g in grouped[type]" :key="g.category">
             <div class="cat-group-head">
@@ -180,7 +209,7 @@ const grouped = computed(() => {
               <span class="muted small">{{ g.items.length }} 个</span>
             </div>
             <div class="chips">
-              <button
+              <span
                 v-for="it in g.items" :key="it.source + (it.id || '') + it.name"
                 class="chip" :class="{ 'chip-pin': it.source === 'preset', 'chip-freq': it.source === 'freq' }"
                 :title="presetTip(it) + (it.source === 'preset' ? '（点击取消收藏）' : '（点击加入收藏）')"
@@ -189,11 +218,24 @@ const grouped = computed(() => {
                 <em v-if="it.source === 'preset'" class="star">★</em>
                 <i v-if="it.source === 'freq'" class="cnt">×{{ it.count }}</i>
                 {{ it.name }}
-              </button>
+                <button type="button" class="x" title="取消显示" @click.stop="hide(type, it)">×</button>
+              </span>
             </div>
           </div>
         </div>
         <div v-else class="muted small-pad">{{ loading ? "加载中…" : "还没有常用名称。在上方表单添加，或记几笔账后看下方未收藏建议。" }}</div>
+
+        <!-- 第三态：已取消显示（置底灰色，点击恢复） -->
+        <div v-if="hiddenOf(type).length" class="hidden-sec">
+          <div class="section-sub">已取消显示（点击恢复）</div>
+          <div class="chips">
+            <span
+              v-for="h in hiddenOf(type)" :key="'h' + h.name"
+              class="chip chip-hidden" :title="'点击恢复显示'"
+              @click="restore(type, h)"
+            >{{ h.name }}</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -209,13 +251,27 @@ const grouped = computed(() => {
   border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2);
   border-radius: 15px; padding: 6px 12px; font-size: 13px;
   display: inline-flex; align-items: center; gap: 2px;
-  font-family: inherit; cursor: pointer;
+  font-family: inherit; cursor: pointer; position: relative;
 }
 .chip:hover { border-color: var(--primary); }
 .chip .star { color: var(--warning, #f59f00); margin-right: 4px; font-style: normal; }
 .chip .cnt { font-style: normal; opacity: .55; margin-right: 5px; font-size: 11.5px; }
+.chip .x {
+  position: absolute; top: -7px; right: -7px; background: var(--expense, #ef4444); color: #fff;
+  border: none; padding: 0; border-radius: 50%; width: 16px; height: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-style: normal; cursor: pointer; line-height: 1;
+  box-shadow: 0 1px 3px rgba(0,0,0,.3); opacity: 0; transition: opacity .15s;
+}
+.chip:hover .x { opacity: 1; }
+.chip .x:hover { transform: scale(1.15); }
 .chip-pin { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
 /* chip-freq 使用默认（中性）样式，与 chip-pin 形成对照 */
+.chip-hidden {
+  border-style: dashed; color: var(--text-2); opacity: .55;
+}
+.chip-hidden:hover { border-color: var(--text-2); opacity: .9; }
+.hidden-sec { margin-top: 16px; padding-top: 4px; border-top: 1px dashed var(--border); }
 .small-pad { padding: 4px 0 2px; }
 .cat-groups { display: flex; flex-direction: column; gap: 14px; margin-top: 4px; }
 .cat-group { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--surface-2); }

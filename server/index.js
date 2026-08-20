@@ -21,6 +21,7 @@ import walletRoutes from "./routes/wallets.js";
 import { logOp } from "./oplog.js";
 import oplogRoutes from "./oplog.js";
 import { generateDueRecurring } from "./lib/recurring.js";
+import { rebuildAllSuggest } from "./lib/suggest.js";
 import { APP_VERSION } from "./version.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -40,6 +41,21 @@ for (const b of db.prepare("SELECT id FROM books").all()) {
     console.warn("[recurring] 启动生成失败:", e.message);
   }
 }
+
+// 常用名称建议：启动全量重建一次 + 每 24h 每日自动扫描一次
+// （流水保存时已由 flows/import/recurring 路由触发单账本重建，这里是兜底与"每日一次"）
+try {
+  rebuildAllSuggest();
+} catch (e) {
+  console.warn("[suggest] 启动重建失败:", e.message);
+}
+setInterval(() => {
+  try {
+    rebuildAllSuggest();
+  } catch (e) {
+    console.warn("[suggest] 每日重建失败:", e.message);
+  }
+}, 24 * 3600 * 1000);
 
 // ---------- API ----------
 app.get("/api/health", (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
