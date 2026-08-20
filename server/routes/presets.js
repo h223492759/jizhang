@@ -64,11 +64,15 @@ r.get(
       )
       .all(req.bookId, type);
 
+    // 未收藏建议（×N）：读物化表，**只显示出现 ≥2 次的**（"常用"的定义），
+    // 排除已收藏与已隐藏。存储层 preset_suggest 仍保留 count=0/1 的手动项
+    // （防止取消收藏后名称丢失），只是显示层不展示。
     const frequent = db
       .prepare(
         `SELECT s.name, s.count, s.category, s.payment_method, s.avg_amount
            FROM preset_suggest s
           WHERE s.book_id=@bookId AND s.type=@type
+            AND s.count >= 2
             AND s.name NOT IN (SELECT name FROM presets WHERE book_id=@bookId AND type=@type)
             AND s.name NOT IN (SELECT name FROM hidden_names WHERE book_id=@bookId AND type=@type)
           ORDER BY s.count DESC, s.updated_at DESC
