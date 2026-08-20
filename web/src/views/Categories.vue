@@ -382,7 +382,12 @@ const mergeTargets = computed(() => {
 .flow-amt { font-weight: 700; min-width: 80px; text-align: right; }
 .flow-amt.expense { color: var(--expense); }
 .flow-amt.income { color: var(--income); }
-.flow-row-actions { display: inline-flex; gap: 4px; }
+.flow-row-actions {
+  display: inline-flex; gap: 4px;
+  flex-shrink: 0;            /* 不允许被 grid 压缩，保证「改」「删」永远完整显示在同一行 */
+  white-space: nowrap;
+  justify-self: end;         /* 靠右，不挤前面的金额 */
+}
 .row-btn {
   border: 1px solid var(--border); background: var(--surface); color: var(--text-2);
   font-size: 12px; padding: 3px 10px; border-radius: 5px; cursor: pointer; line-height: 1.2;

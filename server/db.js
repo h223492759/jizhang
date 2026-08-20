@@ -311,6 +311,21 @@ CREATE TABLE IF NOT EXISTS hidden_names (
 )`);
 addColumnIfMissing("hidden_names", "category", "category TEXT NOT NULL DEFAULT ''");
 
+// 商户 → 分类 映射（AI 自动记账学习闭环）：用户在弹窗确认/修改分类时写入，
+// 下次同商户直接命中，不再调模型（越用越准）
+db.exec(`
+CREATE TABLE IF NOT EXISTS merchant_cats (
+  book_id    INTEGER NOT NULL,
+  merchant   TEXT NOT NULL,
+  category   TEXT NOT NULL DEFAULT '',
+  count      INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  PRIMARY KEY (book_id, merchant)
+)`);
+db.exec(
+  "CREATE INDEX IF NOT EXISTS idx_merchant_cats_book ON merchant_cats(book_id)"
+);
+
 // 资金细则可带一个生效日期（用于回填历史资产），空=当前
 addColumnIfMissing("savings_items", "as_of", "as_of TEXT NOT NULL DEFAULT ''");
 

@@ -19,6 +19,7 @@ import billRoutes from "./routes/bills.js";
 import savingsRoutes from "./routes/savings.js";
 import walletRoutes from "./routes/wallets.js";
 import syncRoutes from "./routes/sync.js";
+import merchantRoutes from "./routes/merchants.js";
 import { logOp } from "./oplog.js";
 import oplogRoutes from "./oplog.js";
 import { generateDueRecurring } from "./lib/recurring.js";
@@ -88,6 +89,7 @@ app.use("/api/bills", billRoutes);
 app.use("/api/savings", savingsRoutes);
 app.use("/api/wallets", walletRoutes);
 app.use("/api/sync", syncRoutes);
+app.use("/api/merchants", merchantRoutes);
 // 写操作审计（响应后记录），挂所有 API 路由之后
 app.use("/api", logOp);
 app.use("/api/oplogs", oplogRoutes);

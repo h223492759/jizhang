@@ -269,7 +269,7 @@ function pct(f) {
           <span class="muted small">💡 点击饼图扇区或下方标注查看明细</span>
           <button v-if="category.length" class="btn btn-mini clear-btn" @click="clearPieLegend">全部取消</button>
         </div>
-        <EChart ref="pieChart" :key="'pie-' + chartKey" :option="pie('支出分类', category)" v-if="category.length" @click="onPieClick" :height="'520px'" />
+        <EChart ref="pieChart" :key="'pie-' + chartKey" :option="pie('支出分类', category)" v-if="category.length" @click="onPieClick" :height="'430px'" />
         <div v-if="!category.length" class="empty muted">暂无支出数据</div>
       </div>
       <div class="card">
@@ -277,7 +277,7 @@ function pct(f) {
           <span class="muted small">💡 点击饼图扇区或下方标注查看明细</span>
           <button v-if="attribution.length" class="btn btn-mini clear-btn" @click="clearAttrLegend">全部取消</button>
         </div>
-        <EChart ref="attrChart" :key="'attr-' + chartKey" :option="pie('消费归属', attribution, attrColorMap)" v-if="attribution.length" @click="onPieClick" :height="'520px'" />
+        <EChart ref="attrChart" :key="'attr-' + chartKey" :option="pie('消费归属', attribution, attrColorMap)" v-if="attribution.length" @click="onPieClick" :height="'430px'" />
         <div v-if="!attribution.length" class="empty muted">暂无数据</div>
       </div>
       <div class="card daily-card">
