@@ -13,13 +13,15 @@ const form = ref({ id: null, name: "", type: "expense", icon: "💰", color: "#6
 const mergeDlg = ref({ open: false, source: null, targetId: "" });
 
 // 该分类下的流水弹窗
-const flowDlg = ref({ open: false, category: null, type: 'expense', flows: [], loading: false, total: 0 });
+const flowDlg = ref({ open: false, category: null, type: 'expense', flows: [], loading: false, total: 0, sort: 'time', order: 'desc' });
+// 修改单条流水的小弹窗
+const editDlg = ref({ open: false, flow: null, description: '', amount: '', payment_method: '' });
 
 async function showFlows(c) {
-  flowDlg.value = { open: true, category: c, type: c.type, flows: [], loading: true, total: 0 };
+  flowDlg.value = { open: true, category: c, type: c.type, flows: [], loading: true, total: 0, sort: 'time', order: 'desc' };
   try {
     const { data } = await api.get("/flows", {
-      params: { type: c.type, category: c.name, pageSize: 100, sortBy: 'flow_time', order: 'desc' },
+      params: { type: c.type, category: c.name, pageSize: 200, sortBy: 'flow_time', order: 'desc' },
     });
     flowDlg.value.flows = data.list;
     flowDlg.value.total = data.total;
@@ -27,6 +29,65 @@ async function showFlows(c) {
   finally { flowDlg.value.loading = false; }
 }
 function closeFlows() { flowDlg.value.open = false; }
+
+// 弹窗内排序（前端在已有 200 条内切换，避免来回拉后端）
+const sortedFlows = computed(() => {
+  const arr = [...flowDlg.value.flows];
+  const dir = flowDlg.value.order === 'asc' ? 1 : -1;
+  if (flowDlg.value.sort === 'amount') {
+    arr.sort((a, b) => (Number(b.amount) - Number(a.amount)) * dir);
+  } else {
+    arr.sort((a, b) => (new Date(b.flow_time).getTime() - new Date(a.flow_time).getTime()) * dir);
+  }
+  return arr;
+});
+function setFlowSort(s) { flowDlg.value.sort = s; }
+
+// 单条改/删
+function openEditFlow(f) {
+  editDlg.value = {
+    open: true, flow: f,
+    description: f.description || '',
+    amount: String(f.amount),
+    payment_method: f.payment_method || '',
+  };
+}
+async function saveEditFlow() {
+  const ed = editDlg.value;
+  if (!ed.description.trim()) return toast('名称不能为空');
+  const amt = Number(ed.amount);
+  if (!amt || amt <= 0) return toast('金额必须大于0');
+  try {
+    await api.put(`/flows/${ed.flow.id}`, {
+      description: ed.description.trim(),
+      amount: amt,
+      payment_method: ed.payment_method.trim(),
+    });
+    toast('已修改');
+    editDlg.value.open = false;
+    // 局部更新列表中这条
+    const i = flowDlg.value.flows.findIndex((x) => x.id === ed.flow.id);
+    if (i >= 0) {
+      flowDlg.value.flows[i] = {
+        ...flowDlg.value.flows[i],
+        description: ed.description.trim(),
+        amount: amt,
+        payment_method: ed.payment_method.trim(),
+      };
+    }
+  } catch (e) { toast(e.message); }
+}
+function cancelEdit() { editDlg.value.open = false; }
+
+async function deleteFlowInList(f) {
+  if (!confirm(`删除「${f.description || f.category}」¥${Number(f.amount).toFixed(2)} 这条流水？此操作不可撤销。`)) return;
+  try {
+    await api.delete(`/flows/${f.id}`);
+    toast('已删除');
+    flowDlg.value.flows = flowDlg.value.flows.filter((x) => x.id !== f.id);
+    flowDlg.value.total = Math.max(0, flowDlg.value.total - 1);
+  } catch (e) { toast(e.message); }
+}
 
 const ICONS = [
   "🍜","🛍️","🚌","🏠","🎮","💊","📚","📱","🎁","💸","💼","🏆","📈","🧧","🪙","☕","🍔","🚗","✈️","🏥","🎬","👕","🐱","💡","🎓","💰","💳","🍎","🏋️","🎵",
@@ -233,25 +294,57 @@ const mergeTargets = computed(() => {
 
     <!-- 该分类下的流水列表弹窗（点击 📊N 条流水 徽标） -->
     <div v-if="flowDlg.open" class="modal-mask" @click.self="closeFlows">
-      <div class="modal" style="max-width: 720px">
+      <div class="modal" style="max-width: 780px">
         <div class="modal-head">
           <b>📊 {{ flowDlg.category?.icon }} {{ flowDlg.category?.name }} 的流水</b>
           <span class="muted">共 {{ flowDlg.total }} 笔</span>
+          <div class="seg sm" style="margin-left: 12px">
+            <button :class="{on: flowDlg.sort==='amount'}" @click="setFlowSort('amount')">按金额</button>
+            <button :class="{on: flowDlg.sort==='time'}" @click="setFlowSort('time')">按时间</button>
+            <button @click="flowDlg.order = flowDlg.order==='desc'?'asc':'desc'">
+              {{ flowDlg.order==='desc'?'↓ 降序':'↑ 升序' }}
+            </button>
+          </div>
           <button class="btn btn-sm" style="margin-left:auto" @click="closeFlows">关闭</button>
         </div>
         <div class="modal-body" style="max-height: 60vh; overflow:auto">
           <div v-if="flowDlg.loading" class="muted" style="padding:24px;text-align:center">加载中…</div>
-          <div v-else-if="flowDlg.flows.length" class="flow-list">
-            <div v-for="f in flowDlg.flows" :key="f.id" class="flow-row">
+          <div v-else-if="sortedFlows.length" class="flow-list">
+            <div v-for="f in sortedFlows" :key="f.id" class="flow-row">
               <span class="flow-date muted">{{ (f.flow_time||'').slice(0,10) }}</span>
               <span class="flow-name">{{ f.description || f.category }}</span>
               <span class="flow-cat muted">{{ f.category }}</span>
+              <span class="flow-pay muted" v-if="f.payment_method">{{ f.payment_method }}</span>
               <span class="flow-amt" :class="f.type">
                 {{ f.type==='expense' ? '-' : '+' }}{{ Number(f.amount).toFixed(2) }}
               </span>
+              <div class="flow-row-actions">
+                <button class="row-btn" @click="openEditFlow(f)" title="修改">改</button>
+                <button class="row-btn del" @click="deleteFlowInList(f)" title="删除">删</button>
+              </div>
             </div>
           </div>
           <div v-else class="muted" style="padding:24px;text-align:center">该分类下暂无流水</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 修改单条流水小弹窗（弹窗内的"改"按钮） -->
+    <div v-if="editDlg.open" class="modal-mask" @click.self="cancelEdit">
+      <div class="modal" style="max-width: 420px">
+        <h3 class="modal-title">修改流水</h3>
+        <label class="field"><span>名称</span>
+          <input class="input" v-model.trim="editDlg.description" placeholder="名称" />
+        </label>
+        <label class="field"><span>金额</span>
+          <input class="input" type="number" step="0.01" v-model="editDlg.amount" placeholder="金额" />
+        </label>
+        <label class="field"><span>支付方式</span>
+          <input class="input" v-model.trim="editDlg.payment_method" placeholder="支付方式（可选）" />
+        </label>
+        <div class="row" style="justify-content:flex-end; margin-top: 8px">
+          <button class="btn" @click="cancelEdit">取消</button>
+          <button class="btn btn-primary" @click="saveEditFlow">保存</button>
         </div>
       </div>
     </div>
@@ -275,8 +368,27 @@ const mergeTargets = computed(() => {
 
 /* 流水列表弹窗（点击分类徽标时弹出） */
 .modal-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--surface-2); }
+.seg.sm { display: inline-flex; background: var(--surface-2); border-radius: 8px; padding: 2px; }
+.seg.sm button { border: none; background: transparent; padding: 4px 10px; border-radius: 6px; cursor: pointer; color: var(--text-2); font-size: 12px; }
+.seg.sm button.on { background: var(--surface); color: var(--text); font-weight: 600; }
 .modal-body { padding: 8px 16px 16px; }
 .flow-list { display: flex; flex-direction: column; gap: 6px; }
+.flow-row {
+  display: grid; grid-template-columns: 92px 1fr auto auto auto auto; gap: 10px; align-items: center;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); font-size: 13px;
+}
+.flow-name { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flow-cat, .flow-pay { font-size: 12px; }
+.flow-amt { font-weight: 700; min-width: 80px; text-align: right; }
+.flow-amt.expense { color: var(--expense); }
+.flow-amt.income { color: var(--income); }
+.flow-row-actions { display: inline-flex; gap: 4px; }
+.row-btn {
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-2);
+  font-size: 12px; padding: 2px 8px; border-radius: 5px; cursor: pointer; line-height: 1.2;
+}
+.row-btn:hover { border-color: var(--primary); color: var(--primary); }
+.row-btn.del:hover { border-color: var(--expense, #ef4444); color: var(--expense, #ef4444); }
 .flow-row {
   display: grid; grid-template-columns: 92px 1fr auto auto; gap: 10px; align-items: center;
   padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); font-size: 13px;

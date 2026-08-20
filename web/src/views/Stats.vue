@@ -75,12 +75,12 @@ function pie(title, data, colorMap) {
   return {
     title: { text: title, left: "center", textStyle: { fontSize: 14 } },
     tooltip: { trigger: "item", formatter: "{b}: ¥{c} ({d}%)" },
-    // 注释完整显示，不折叠为滚动
-    legend: { bottom: 2, type: "plain", width: "92%", itemWidth: 10, itemHeight: 10, textStyle: { fontSize: 11 } },
+    // 拉大饼图与图例的间距（避免图1那样标注贴着饼图底部），图例分页处理
+    legend: { bottom: 4, type: "scroll", width: "94%", itemWidth: 10, itemHeight: 10, textStyle: { fontSize: 11 }, padding: [8, 0, 4, 0] },
     color: PALETTE,
     series: [{
       name: title,
-      type: "pie", radius: ["36%", "62%"], center: ["50%", "42%"],
+      type: "pie", radius: ["32%", "58%"], center: ["50%", "44%"],
       cursor: "pointer",
       avoidLabelOverlap: true,
       itemStyle: { borderRadius: 6, borderColor: "transparent", borderWidth: 2 },
@@ -255,30 +255,32 @@ function pct(f) {
     </div>
 
     <div class="grid charts">
-      <div class="card clickable-hint">
-        <div class="chart-head">
-          <EChart ref="pieChart" :key="'pie-' + chartKey" :option="pie('支出分类', category)" v-if="category.length" @click="onPieClick" />
+      <div class="card">
+        <div class="chart-toolbar">
+          <span class="muted small">💡 点击饼图扇区或下方标注查看明细</span>
           <button v-if="category.length" class="btn btn-mini clear-btn" @click="clearPieLegend">全部取消</button>
         </div>
+        <EChart ref="pieChart" :key="'pie-' + chartKey" :option="pie('支出分类', category)" v-if="category.length" @click="onPieClick" :height="'380px'" />
         <div v-if="!category.length" class="empty muted">暂无支出数据</div>
       </div>
-      <div class="card clickable-hint">
-        <div class="chart-head">
-          <EChart ref="attrChart" :key="'attr-' + chartKey" :option="pie('消费归属', attribution, attrColorMap)" v-if="attribution.length" @click="onPieClick" />
+      <div class="card">
+        <div class="chart-toolbar">
+          <span class="muted small">💡 点击饼图扇区或下方标注查看明细</span>
           <button v-if="attribution.length" class="btn btn-mini clear-btn" @click="clearAttrLegend">全部取消</button>
         </div>
+        <EChart ref="attrChart" :key="'attr-' + chartKey" :option="pie('消费归属', attribution, attrColorMap)" v-if="attribution.length" @click="onPieClick" :height="'380px'" />
         <div v-if="!attribution.length" class="empty muted">暂无数据</div>
       </div>
       <div class="card daily-card">
         <div class="section-title">流水趋势（悬浮查看当日明细）</div>
-        <EChart :key="'daily-' + chartKey" :option="dailyOpt" v-if="daily.length" :height="'260px'" />
+        <EChart :key="'daily-' + chartKey" :option="dailyOpt" v-if="daily.length" :height="'280px'" />
         <div v-if="!daily.length" class="empty muted">暂无数据</div>
       </div>
     </div>
 
-    <div class="card clickable-hint" style="margin-top:16px">
+    <div class="card" style="margin-top:16px">
       <div class="section-title">{{ year }} 年每月流水</div>
-      <EChart :key="'monthly-' + year" :option="monthlyOpt" :height="'300px'" @click="onBarClick" />
+      <EChart :key="'monthly-' + year" :option="monthlyOpt" :height="'320px'" @click="onBarClick" />
     </div>
 
     <!-- 饼图 / 柱形点击后的明细弹窗 -->
@@ -336,10 +338,9 @@ export default { components: { EChart } };
 .stat .big { font-size: 20px; font-weight: 800; margin-top: 6px; }
 .charts { grid-template-columns: repeat(2, 1fr); }
 .daily-card { grid-column: span 2; }
-.clickable-hint { position: relative; }
 .clickable-hint::after { content: "点击查看明细"; position: absolute; top: 8px; right: 12px; font-size: 11px; color: var(--text-2); opacity: .7; pointer-events: none; }
-.chart-head { position: relative; }
-.clear-btn { position: absolute; top: 6px; right: 12px; z-index: 1; font-size: 11px; padding: 3px 8px; }
+.chart-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 4px 0; }
+.clear-btn { font-size: 11px; padding: 3px 8px; }
 .empty { display: flex; align-items: center; justify-content: center; height: 300px; }
 @media (max-width: 720px) { .cards { grid-template-columns: repeat(2,1fr); } .charts { grid-template-columns: 1fr; } .daily-card { grid-column: span 1; } }
 

@@ -4,6 +4,9 @@ import api from "../api.js";
 import { useStore } from "../store.js";
 import { toast } from "../toast.js";
 
+// 模块级缓存：组件销毁后保留，避免每次切回"常用名称"页都空白等 6 秒
+const _cached = { expense: null, income: null };
+
 const store = useStore();
 const loading = ref(false);
 const types = ["expense", "income"];
@@ -18,8 +21,8 @@ const TYPE_META = {
 //   hidden  = 已取消显示（点 × 进入，置底灰色展示，可恢复）
 // 点击 chip：已收藏 ↔ 未收藏 切换；右上角 ×：取消显示。隐藏的点击 = 恢复。
 const sections = reactive({
-  expense: { presets: [], frequent: [], recent: [] },
-  income: { presets: [], frequent: [], recent: [] },
+  expense: { presets: [], frequent: [], recent: [], hidden: [] },
+  income: { presets: [], frequent: [], recent: [], hidden: [] },
 });
 const forms = reactive({ expense: blank(), income: blank() });
 
@@ -30,15 +33,21 @@ function catsOf(type) {
   return store.categories.filter((c) => c.type === type);
 }
 
+async function _fetch() {
+  const [ex, inc] = await Promise.all([
+    api.get("/presets", { params: { type: "expense", limit: 500 } }),
+    api.get("/presets", { params: { type: "income", limit: 500 } }),
+  ]);
+  _cached.expense = ex.data;
+  _cached.income = inc.data;
+  return { expense: ex.data, income: inc.data };
+}
 async function load() {
   loading.value = true;
   try {
-    const [ex, inc] = await Promise.all([
-      api.get("/presets", { params: { type: "expense", limit: 500 } }),
-      api.get("/presets", { params: { type: "income", limit: 500 } }),
-    ]);
-    sections.expense = ex.data;
-    sections.income = inc.data;
+    const { expense, income } = await _fetch();
+    sections.expense = expense;
+    sections.income = income;
   } catch (e) {
     toast(e.message);
   } finally {
@@ -48,15 +57,21 @@ async function load() {
 // 静默刷新：不切 loading 标志（避免"加载中"闪烁），用于 chip 点击后的局部更新
 async function silentReload() {
   try {
-    const [ex, inc] = await Promise.all([
-      api.get("/presets", { params: { type: "expense", limit: 500 } }),
-      api.get("/presets", { params: { type: "income", limit: 500 } }),
-    ]);
-    sections.expense = ex.data;
-    sections.income = inc.data;
+    const { expense, income } = await _fetch();
+    sections.expense = expense;
+    sections.income = income;
   } catch (e) { toast(e.message); }
 }
-onMounted(load);
+// onMounted 立即用缓存填充（秒开），后台再静默刷新
+onMounted(() => {
+  if (_cached.expense) {
+    sections.expense = _cached.expense;
+    sections.income = _cached.income;
+    silentReload(); // 有缓存则后台静默刷新
+  } else {
+    load(); // 无缓存则带 loading 加载
+  }
+});
 
 async function submit(type) {
   const f = forms[type];
