@@ -243,6 +243,8 @@ addColumnIfMissing("budgets", "expression", "expression TEXT NOT NULL DEFAULT ''
 // 分类钱包可关联某一流水分类（自某日期起），该分类的支出自动加减到钱包余额
 addColumnIfMissing("wallets", "link_from", "link_from TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing("wallets", "link_category", "link_category TEXT NOT NULL DEFAULT ''");
+// 多行关联（每行一个 cat+from 对，JSON 数组字符串）：支持同钱包关联多分类、不同起始日
+addColumnIfMissing("wallets", "link_links", "link_links TEXT NOT NULL DEFAULT ''");
 
 // 定期记账模板归属：默认按创建账号填充，生成的流水归属到该账号（共享账本双方都能看到）
 addColumnIfMissing("recurring", "attribution_uid", "attribution_uid INTEGER");

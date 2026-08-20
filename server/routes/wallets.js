@@ -38,18 +38,57 @@ const parseCategories = (v) => {
     .filter(Boolean);
 };
 
+// 解析 link_links（多行 cat+from）：存 JSON 数组字符串 [{cat, from}, ...]
+// 兼容旧版单 link_category + link_from（无 link_links 时回退构造 1 行）
+const parseLinkLinks = (w) => {
+  if (w.link_links) {
+    try {
+      const arr = JSON.parse(w.link_links);
+      if (Array.isArray(arr)) {
+        return arr
+          .map((x) => ({
+            cat: String(x?.cat || "").trim(),
+            from: normLinkDate(x?.from || ""),
+          }))
+          .filter((x) => x.cat);
+      }
+    } catch (_) {}
+  }
+  if (w.link_category) {
+    return [{ cat: String(w.link_category).trim(), from: normLinkDate(w.link_from) }];
+  }
+  return [];
+};
+
 // 某（些）分类自某日起对钱包的净影响：收入计 +，支出计 −
-const linkedSum = (bookId, categories, from) => {
-  const cats = Array.isArray(categories) ? categories : parseCategories(categories);
-  if (!cats.length || !from) return 0;
-  const ph = cats.map(() => "?").join(",");
-  const r = db
-    .prepare(
-      `SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE -amount END),0) AS s
-       FROM flows WHERE book_id=? AND category IN (${ph}) AND substr(flow_time,1,10) >= ?`
-    )
-    .get(bookId, ...cats, from);
-  return Number(r.s) || 0;
+// 支持多行：每行一个 (cat, from)，求和
+const linkedSum = (bookId, linksOrCats, from) => {
+  // 兼容旧调用（多分类单 from）
+  if (!Array.isArray(linksOrCats) || (linksOrCats.length && typeof linksOrCats[0] === "string")) {
+    const cats = linksOrCats;
+    if (!cats.length || !from) return 0;
+    const ph = cats.map(() => "?").join(",");
+    const r = db
+      .prepare(
+        `SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE -amount END),0) AS s
+         FROM flows WHERE book_id=? AND category IN (${ph}) AND substr(flow_time,1,10) >= ?`
+      )
+      .get(bookId, ...cats, from);
+    return Number(r.s) || 0;
+  }
+  // 新版：多行（每行 cat+from）
+  let total = 0;
+  for (const l of linksOrCats) {
+    if (!l.cat || !l.from) continue;
+    const r = db
+      .prepare(
+        `SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE -amount END),0) AS s
+         FROM flows WHERE book_id=? AND category=? AND substr(flow_time,1,10) >= ?`
+      )
+      .get(bookId, l.cat, l.from);
+    total += Number(r.s) || 0;
+  }
+  return total;
 };
 
 // 钱包列表：含余额、累计存入 / 支出、笔数、最近一笔日期
@@ -75,8 +114,8 @@ r.get(
 
     const list = wallets.map((w) => {
       const a = map[w.id] || { balance: 0, total_in: 0, total_out: 0, count: 0, last_ymd: "" };
-      const cats = parseCategories(w.link_category);
-      const linked = linkedSum(req.bookId, cats, w.link_from);
+      const links = parseLinkLinks(w);
+      const linked = linkedSum(req.bookId, links);
       const eff = (a.balance || 0) + linked; // 手动余额 + 关联分类净影响
       return {
         ...w,
@@ -89,8 +128,8 @@ r.get(
         last_ymd: a.last_ymd || "",
         percent: w.target > 0 ? Math.round((eff / w.target) * 100) : 0,
         linkedFrom: w.link_from || "",
-        linkCategories: cats,           // 多分类数组（新版）
-        linkCategory: w.link_category || "", // 兼容旧字段（JSON 字符串）
+        linkCategories: parseCategories(w.link_category), // 旧字段（兼容）
+        linkLinks: links,                                  // 新版：多行 (cat, from)
       };
     });
     res.json({
@@ -124,11 +163,18 @@ r.post(
     const linkFrom = normLinkDate(req.body?.link_from);
     // 多分类支持：统一存 JSON 数组字符串（旧版单值字符串也兼容）
     const linkCategory = JSON.stringify(parseCategories(req.body?.link_category));
+    // 多行关联：每行 {cat, from}，存 link_links 字段（link_category+link_from 旧字段也写一份兼容）
+    const linkLinksArr = Array.isArray(req.body?.link_links) ? req.body.link_links : [];
+    const linkLinks = JSON.stringify(
+      linkLinksArr
+        .map((x) => ({ cat: String(x?.cat || "").trim(), from: normLinkDate(x?.from || "") }))
+        .filter((x) => x.cat)
+    );
     const max = db
       .prepare("SELECT COALESCE(MAX(sort),0) AS m FROM wallets WHERE book_id=?")
       .get(req.bookId).m;
     const info = db
-      .prepare("INSERT INTO wallets (book_id,name,icon,target,note,sort,link_from,link_category,client_uuid) VALUES (?,?,?,?,?,?,?,?,?)")
+      .prepare("INSERT INTO wallets (book_id,name,icon,target,note,sort,link_from,link_category,link_links,client_uuid) VALUES (?,?,?,?,?,?,?,?,?,?)")
       .run(
         req.bookId,
         name,
@@ -138,6 +184,7 @@ r.post(
         max + 1,
         linkFrom,
         linkCategory,
+        linkLinks,
         uuid || null
       );
     res.json({ id: Number(info.lastInsertRowid) });
@@ -161,7 +208,7 @@ r.put(
         .get(req.bookId, name, cur.id);
       if (dup) return res.status(400).json({ error: `钱包「${name}」已存在` });
     }
-    db.prepare("UPDATE wallets SET name=?, icon=?, target=?, note=?, link_from=?, link_category=? WHERE id=?").run(
+    db.prepare("UPDATE wallets SET name=?, icon=?, target=?, note=?, link_from=?, link_category=?, link_links=? WHERE id=?").run(
       name,
       (req.body?.icon ?? cur.icon).toString().trim() || "👛",
       req.body?.target != null ? Number(req.body.target) || 0 : cur.target,
@@ -170,6 +217,13 @@ r.put(
       req.body?.link_category != null
         ? JSON.stringify(parseCategories(req.body.link_category))
         : cur.link_category,
+      req.body?.link_links != null
+        ? JSON.stringify(
+            (Array.isArray(req.body.link_links) ? req.body.link_links : [])
+              .map((x) => ({ cat: String(x?.cat || "").trim(), from: normLinkDate(x?.from || "") }))
+              .filter((x) => x.cat)
+          )
+        : cur.link_links,
       cur.id
     );
     res.json({ ok: true });
@@ -210,20 +264,21 @@ r.get(
       )
       .all(req.bookId, w.id);
     const balance = rows.reduce((s, x) => s + Number(x.amount || 0), 0);
-    // 关联分类的流水（自 link_from 起）：收入计 +，支出计 −（支持多分类）
+    // 关联分类的流水（自 link_from 起）：收入计 +，支出计 −（支持多行，每行不同 cat+from）
     let linkedRows = [];
     let linkedSum = 0;
-    const linkCats = parseCategories(w.link_category);
-    if (w.link_from && linkCats.length) {
-      const ph = linkCats.map(() => "?").join(",");
-      linkedRows = db
+    const linkLinks = parseLinkLinks(w);
+    for (const l of linkLinks) {
+      if (!l.cat || !l.from) continue;
+      const rows = db
         .prepare(
           `SELECT id, type, amount, category, description, attribution, flow_time
-           FROM flows WHERE book_id=? AND category IN (${ph}) AND substr(flow_time,1,10) >= ?
+           FROM flows WHERE book_id=? AND category=? AND substr(flow_time,1,10) >= ?
            ORDER BY flow_time DESC, id DESC`
         )
-        .all(req.bookId, ...linkCats, w.link_from);
-      linkedSum = linkedRows.reduce((s, x) => s + (x.type === "income" ? Number(x.amount) : -Number(x.amount)), 0);
+        .all(req.bookId, l.cat, l.from);
+      linkedRows.push({ link: l, rows });
+      linkedSum += rows.reduce((s, x) => s + (x.type === "income" ? Number(x.amount) : -Number(x.amount)), 0);
     }
     res.json({
       wallet: w,

@@ -74,37 +74,59 @@ const hiddenWallets = computed(() => (data.value.wallets || []).filter((w) => Nu
 // ---------------- 新增 / 编辑钱包 ----------------
 const showWallet = ref(false);
 const editingWallet = ref(null);
-// link_categories: 关联分类数组（多选）；服务器存 JSON 数组
-const walletForm = ref({ name: "", icon: "👛", target: "", initBalance: "", note: "", link_from: "", link_categories: [] });
+// link_links: 关联行数组 [{cat, from}, ...]（每行一个分类+起始日，支持同钱包多分类不同起始日）
+// 兼容旧字段：link_from / link_category（单值）
+const walletForm = ref({ name: "", icon: "👛", target: "", initBalance: "", note: "", link_links: [] });
 function openAddWallet() {
   editingWallet.value = null;
-  walletForm.value = { name: "", icon: "👛", target: "", initBalance: "", note: "", link_from: "", link_categories: [] };
+  walletForm.value = { name: "", icon: "👛", target: "", initBalance: "", note: "", link_links: [{ cat: "", from: "" }] };
   showWallet.value = true;
 }
 function openEditWallet(w) {
   editingWallet.value = w;
+  let links = Array.isArray(w.linkLinks) && w.linkLinks.length
+    ? w.linkLinks.map((x) => ({ cat: x.cat || "", from: x.from || "" }))
+    : [];
+  // 兼容旧字段：单 linkCategory + linkedFrom → 构造 1 行
+  if (!links.length && (w.linkCategory || w.linkFrom)) {
+    links = [{ cat: w.linkCategory || "", from: w.linkFrom || "" }];
+  }
+  if (!links.length) links = [{ cat: "", from: "" }];
   walletForm.value = {
     name: w.name,
     icon: w.icon || "👛",
     target: String(w.target || ""),
     initBalance: "",
     note: w.note || "",
-    link_from: w.linkFrom || "",
-    link_categories: Array.isArray(w.linkCategories) ? [...w.linkCategories] : (w.linkCategory ? [w.linkCategory] : []),
+    link_links: links,
   };
   showWallet.value = true;
+}
+function addLinkLink() {
+  walletForm.value.link_links.push({ cat: "", from: "" });
+}
+function removeLinkLink(idx) {
+  walletForm.value.link_links.splice(idx, 1);
+  if (!walletForm.value.link_links.length) walletForm.value.link_links.push({ cat: "", from: "" });
 }
 async function saveWallet() {
   if (!walletForm.value.name.trim()) return toast("请填写钱包名称");
   const t = evalExpr(walletForm.value.target || "0");
   if (!isFinite(t) || t < 0) return toast("目标金额请填正数");
+  // 清理空行（空分类）
+  const cleanLinks = walletForm.value.link_links
+    .filter((l) => l.cat && l.cat.trim())
+    .map((l) => ({ cat: l.cat.trim(), from: (l.from || "").trim() }));
+  // 兼容旧字段：第一行的 from/cat 写到 link_from/link_category
+  const first = cleanLinks[0] || { cat: "", from: "" };
   const payload = {
     name: walletForm.value.name.trim(),
     icon: walletForm.value.icon.trim() || "👛",
     target: t,
     note: walletForm.value.note.trim(),
-    link_from: walletForm.value.link_from || "",
-    link_category: walletForm.value.link_categories,
+    link_from: first.from || "",
+    link_category: cleanLinks.map((l) => l.cat).join(","),
+    link_links: cleanLinks,
   };
   try {
     let wid;
@@ -256,8 +278,10 @@ async function saveTxnEdit() {
         <div class="bar" style="margin-top:8px;height:6px" v-if="w.target">
           <i :style="{ width: Math.max(0, Math.min(100, w.percent)) + '%', background: w.balance >= w.target ? 'var(--income)' : 'var(--primary)' }"></i>
         </div>
-        <div class="w-link" v-if="w.linkCategories && w.linkCategories.length">
-          <span class="tag-link">🔗 关联 {{ w.linkCategories.join('、') }} · 自 {{ w.linkedFrom }}</span>
+        <div class="w-link" v-if="w.linkLinks && w.linkLinks.length">
+          <div v-for="(lk, idx) in w.linkLinks" :key="idx" class="tag-link" style="display:block;margin-bottom:2px">
+            🔗 关联 {{ lk.cat }} · 自 {{ lk.from || '（未设日期）' }}
+          </div>
           <div class="muted small">关联自动 <b :class="w.linked >= 0 ? 'income' : 'expense'">{{ w.linked >= 0 ? '+' : '−' }}{{ fmt(Math.abs(w.linked)) }}</b>（手动 {{ fmt(w.manualBalance) }}）</div>
         </div>
         <div class="muted small w-meta">存入 {{ fmt(w.total_in) }}｜支出 {{ fmt(w.total_out) }}</div>
@@ -306,28 +330,22 @@ async function saveTxnEdit() {
           </span>
         </label>
         <div class="field">
-          <span>关联流水分类（可选，可多选）：自某日起，这些分类的收支自动加减到本钱包</span>
-          <div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">
-            <div style="display:flex;flex-wrap:wrap;gap:6px;flex:1">
-              <label
-                v-for="c in categoryOptions" :key="c.id"
-                class="cat-check"
-                :class="{ on: walletForm.link_categories.includes(c.name) }"
-              >
-                <input
-                  type="checkbox"
-                  :value="c.name"
-                  v-model="walletForm.link_categories"
-                  style="display:none"
-                />
-                {{ c.name }}{{ c.type === 'income' ? '（收）' : '（支）' }}
-              </label>
-              <span v-if="!categoryOptions.length" class="muted small">暂无分类，请先在分类页新建</span>
+          <span>关联流水分类（可选，多行，每行一个分类+起始日）：自某日起，该分类的收支自动加减到本钱包</span>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+            <div v-for="(lk, idx) in walletForm.link_links" :key="idx" style="display:flex;gap:6px;align-items:center">
+              <select class="input" v-model="lk.cat" style="width:auto;min-width:140px">
+                <option value="">选择分类</option>
+                <option v-for="c in categoryOptions" :key="c.id" :value="c.name">
+                  {{ c.name }}{{ c.type === 'income' ? '（收）' : '（支）' }}
+                </option>
+              </select>
+              <DateInput v-model="lk.from" />
+              <button type="button" class="btn" style="padding:2px 10px" @click="removeLinkLink(idx)" title="删除该行">×</button>
             </div>
-            <DateInput v-model="walletForm.link_from" />
+            <button type="button" class="btn" style="align-self:flex-start;padding:2px 12px" @click="addLinkLink">+ 添加一行</button>
           </div>
-          <span class="muted small" v-if="walletForm.link_categories.length">
-            例：养娃基金关联「孩子」「玩具」自某日 → 这些分类的支出自动从钱包扣减、收入自动加回（余额 = 手动存入 + 关联净额）。
+          <span class="muted small" v-if="walletForm.link_links.length">
+            例：养娃基金关联「孩子」自 2026-01-01 + 「礼金（支）」自 2026-06-01 → 各自起始日后自动加减。
           </span>
         </div>
         <label class="field">
