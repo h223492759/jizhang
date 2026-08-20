@@ -34,8 +34,8 @@ async function load() {
   loading.value = true;
   try {
     const [ex, inc] = await Promise.all([
-      api.get("/presets", { params: { type: "expense", limit: 60 } }),
-      api.get("/presets", { params: { type: "income", limit: 60 } }),
+      api.get("/presets", { params: { type: "expense", limit: 500 } }),
+      api.get("/presets", { params: { type: "income", limit: 500 } }),
     ]);
     sections.expense = ex.data;
     sections.income = inc.data;
@@ -141,13 +141,14 @@ async function rescan() {
   }
 }
 
-// 扫描流水 → 批量加入收藏（★）：把流水里出现 ≥2 次的名称全部补回「已收藏」，
-// 已收藏的跳过。用于恢复历史常用名称（数据源就是流水）。
+// 扫描流水 → 重建未收藏建议（×N）。把流水里所有名称（出现 ≥1 次）重新列进
+// 「未收藏建议」区并显示频次；★ 收藏 / 取消显示仍须手动，扫描绝不自动收藏。
+// 用于恢复"常用名称不见"：只要名称还在流水里，扫一遍就全部回来了。
 const scanning = ref(false);
-async function scanToPin() {
+async function scan() {
   if (
     !confirm(
-      "将扫描本账本所有流水，把出现 ≥2 次的名称全部加入「已收藏」（★）？\n已收藏的会跳过，不会重复。可以之后再手动取消。"
+      "将扫描本账本所有流水，把所有出现过的名称重建到「未收藏建议」区（×N，带频次）？\n已收藏（★）和已取消显示的不受影响；需要收藏的名称之后请手动点 ★。"
     )
   )
     return;
@@ -156,13 +157,13 @@ async function scanToPin() {
     const { data } = await api.post("/presets/scan");
     await load();
     alert(
-      "扫描完成：\n新增收藏 " +
-        data.added +
-        " 个\n跳过已收藏 " +
-        data.skipped +
-        " 个\n（共匹配 " +
+      "扫描完成：\n流水中共发现 " +
         data.scanned +
-        " 个名称）"
+        " 个名称，已全部显示在下方「未收藏建议」区\n当前已收藏 " +
+        data.pinned +
+        " 个、已取消显示 " +
+        data.hidden +
+        " 个\n需要收藏的名称，点 ★ 即可加入。"
     );
   } catch (e) {
     toast(e.message);
@@ -246,10 +247,10 @@ const grouped = computed(() => {
         流水里的最近名称在「记一笔」弹窗里推荐。
       </p>
       <div class="toolbar">
-        <button class="btn btn-primary" :disabled="scanning" @click="scanToPin">
-          {{ scanning ? "扫描中…" : "🔍 扫描流水加入收藏" }}
+        <button class="btn btn-primary" :disabled="scanning" @click="scan">
+          {{ scanning ? "扫描中…" : "🔍 扫描流水" }}
         </button>
-        <span class="muted small">把流水里出现 ≥2 次的名称全部补回「已收藏 ★」（已收藏跳过）——用于恢复历史常用名称</span>
+        <span class="muted small">把流水里所有出现过的名称重建到「未收藏建议」区（带频次）；收藏/取消显示仍手动</span>
         <button class="btn" :disabled="rescanning" @click="rescan">
           {{ rescanning ? "刷新中…" : "🔄 立即刷新建议" }}
         </button>
