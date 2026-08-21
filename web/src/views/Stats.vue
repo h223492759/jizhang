@@ -228,6 +228,18 @@ function pct(f) {
   if (!detailSum.value) return "0%";
   return ((Number(f.amount) / detailSum.value) * 100).toFixed(1) + "%";
 }
+
+// 归属人专属底色（10% 透明度背景，文字保持原色）：用于详情行左侧色块
+function ownerBg(c) {
+  if (!c) return '';
+  return `${c}1a`; // 8 位 hex：前 6 位 RGB + 1a（10% alpha）
+}
+// 归属人缩写（最多 2 字，空则"我"）
+function ownerShort(name) {
+  const s = (name || '').trim();
+  if (!s) return '我';
+  return s.length <= 2 ? s : s.slice(-2);
+}
 </script>
 
 <template>
@@ -309,9 +321,14 @@ function pct(f) {
           <div v-if="detail.loading" class="muted" style="padding:24px;text-align:center">加载中…</div>
           <div v-else-if="sortedRows.length" class="detail-list">
             <div v-for="f in sortedRows" :key="f.id" class="detail-row">
-              <div class="dr-cat">
+              <!-- 左边底色 = 归属人专属色（参考安卓 ownerColor，多人共享账本一眼分清谁的花销） -->
+              <div
+                class="dr-cat"
+                :style="f.attribution_color ? { background: ownerBg(f.attribution_color), color: f.attribution_color } : null"
+              >
                 <span class="dr-icon">{{ catIcon(f.category) }}</span>
                 <span class="dr-catname">{{ f.category }}</span>
+                <span v-if="f.attribution" class="dr-owner-label" :title="f.attribution">· {{ ownerShort(f.attribution) }}</span>
               </div>
               <div class="dr-main">
                 <div class="dr-line1">
@@ -365,6 +382,7 @@ export default { components: { EChart } };
 /* 明细列表：柱状图样式，每条记录 = 左(分类图标+名) + 右(行1 名称+百分比+金额 / 行2 柱状 / 行3 日期) */
 .detail-list { display: flex; flex-direction: column; gap: 10px; }
 .detail-row { display: flex; gap: 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+.dr-owner-label { font-size: 11px; opacity: 0.75; margin-left: 2px; }
 .dr-cat { flex: 0 0 112px; display: flex; align-items: center; gap: 6px; justify-content: flex-start; }
 .dr-icon { font-size: 22px; }
 .dr-catname { font-weight: 700; font-size: 15px; color: var(--text); }

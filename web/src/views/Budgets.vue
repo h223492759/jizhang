@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, computed, watch } from "vue";
+import { useRoute } from "vue-router";
 import dayjs from "dayjs";
 import api from "../api.js";
 import { useStore } from "../store.js";
@@ -7,6 +8,7 @@ import { toast } from "../toast.js";
 import EChart from "../components/EChart.vue";
 
 const store = useStore();
+const route = useRoute();
 const year = ref(dayjs().year());
 const data = ref({ total: { amount: 0, spent: 0, remaining: 0, percent: 0 }, categories: [], spentByCategory: {} });
 const years = computed(() => [year.value - 2, year.value - 1, year.value, year.value + 1].filter((v, i, a) => a.indexOf(v) === i));
@@ -92,7 +94,7 @@ async function save() {
     load();
   } catch (e) { toast(e.message); }
 }
-async // 上移/下移分类预算（同步服务器 sort；安卓端读 sort 显示）
+// 上移/下移分类预算（同步服务器 sort；安卓端读 sort 显示）
 async function moveCat(c, dir) {
   const list = data.value.categories;
   const i = list.findIndex((x) => x.category === c.category);
