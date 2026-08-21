@@ -100,24 +100,25 @@ async function moveCat(c, dir) {
   const i = list.findIndex((x) => x.category === c.category);
   const j = i + dir;
   if (i < 0 || j < 0 || j >= list.length) return;
-  // 互换 sort（确保新 sort 与原 sort 不冲突：用两者中位值）
-  const a = list[i], b = list[j];
-  const sortA = Math.max(1, (a.sort || 0));
-  const sortB = Math.max(1, (b.sort || 0));
-  // 简单处理：直接交换 sort，并服务端持久化
-  const newSortA = sortB;
-  const newSortB = sortA;
-  // 本地立即反映
-  a.sort = newSortA;
-  b.sort = newSortB;
+  // 若存在 sort=0（旧数据未初始化），先按当前显示顺序初始化整列 sort=10/20/30…
+  // 否则 max(1,0) 会把被点分类变成 1、其他仍是 0 → 被点分类被排到所有 0 后面（"挪到最后"）
+  if (list.some((x) => !x.sort)) {
+    list.forEach((x, idx) => { x.sort = (idx + 1) * 10; });
+  }
+  // ① 交换 i/j 两条的 sort 值
+  const sa = list[i].sort, sb = list[j].sort;
+  list[i].sort = sb;
+  list[j].sort = sa;
+  // ② 本地同步交换数组位置（否则页面显示不变，要刷新才看到新排序）
+  const tmp = list[i];
+  list[i] = list[j];
+  list[j] = tmp;
   data.value.categories = [...list]; // 触发响应式
   try {
+    // 全量提交整列 sort（保证与本地顺序一致，避免只传两条造成其他分类排序混乱）
     await api.post('/budgets/reorder', {
       year: Number(route.query.year) || new Date().getFullYear(),
-      items: [
-        { category: a.category, sort: newSortA },
-        { category: b.category, sort: newSortB },
-      ],
+      items: list.map((x) => ({ category: x.category, sort: x.sort })),
     });
     toast('已调序');
   } catch (e) { toast(e.message); }
