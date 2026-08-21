@@ -329,7 +329,8 @@ r.post(
         client_uuid: uuid || null,
       });
     // 定期存入触发（收入流水 → 按钱包规则自动分配）
-    try { tryDeposit(req.bookId, { flow_time, category, attribution: attr.text, type, amount, user_id: req.user.id }); } catch (_) {}
+    try { tryDeposit(req.bookId, { flow_time, category, attribution: attr.text, type, amount, user_id: req.user.id }); }
+    catch (e) { console.error("[tryDeposit]", e); }
     res.json({ id: info.lastInsertRowid });
   })
 );

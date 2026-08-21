@@ -310,6 +310,22 @@ r.get(
       .get(req.params.id, req.bookId);
     if (!w) return res.status(404).json({ error: "钱包不存在" });
     w.deposit_rules = parseDepositRules(w);
+    // 定存细则兜底补触发：打开详情页时对匹配的 income 流水补触发一次（幂等防重，
+    // 即使 POST /flows 触发异常漏分配，这里也会补上，保证规则一定生效）
+    if (w.deposit_rules.length) {
+      try {
+        for (const r of w.deposit_rules) {
+          const sYm = String(r.start_ym || "").slice(0, 7) || dayjs().subtract(6, "month").format("YYYY-MM");
+          const flows = db
+            .prepare(
+              `SELECT * FROM flows WHERE book_id=? AND category=? AND type='income'
+               AND substr(flow_time,1,7)>=? ORDER BY flow_time ASC`
+            )
+            .all(req.bookId, r.cat, sYm);
+          for (const f of flows) tryDeposit(req.bookId, f);
+        }
+      } catch (_) {}
+    }
     // 清理残留月结（老版本落库的 wallet_txns 月结记录；月结现改为纯实时聚合，不再落库）
     db.prepare("DELETE FROM wallet_txns WHERE wallet_id=? AND book_id=? AND note LIKE '%月结%'").run(w.id, req.bookId);
     const rows = db
