@@ -164,6 +164,21 @@ async function delWallet(w) {
 // ---------------- 钱包明细（资金记录） ----------------
 const showDetail = ref(false);
 const detail = ref({ wallet: {}, rows: [], balance: 0 });
+// 资金记录 + 月结 合并排序（按日期倒序穿插，不再月结挤在末尾）
+const allTxns = computed(() => {
+  const d = detail.value;
+  if (!d) return [];
+  const rows = (d.rows || []).map((t) => ({
+    kind: 'manual', id: t.id, ymd: t.ymd || '',
+    amount: Number(t.amount || 0), note: t.note || '', op: t.op_user || '',
+  }));
+  const monthly = (d.monthly || []).map((m) => ({
+    kind: 'monthly', id: `m-${m.ymd}-${m.category}-${m.attribution}`,
+    ymd: m.ymd || '', amount: Number(m.amount || 0),
+    note: `月结 · ${m.category || ''}`, op: m.attribution || '',
+  }));
+  return [...rows, ...monthly].sort((a, b) => (a.ymd < b.ymd ? 1 : a.ymd > b.ymd ? -1 : 0));
+});
 async function openDetail(w) {
   try {
     const { data: d } = await api.get(`/wallets/${w.id}/txns`);
@@ -415,29 +430,24 @@ async function saveTxnEdit() {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="t in detail.rows" :key="'t' + t.id">
+            <tr v-for="t in allTxns" :key="t.id" :class="{ 'row-monthly': t.kind === 'monthly' }">
               <td class="c-d"><b>{{ t.ymd }}</b></td>
               <td class="num" :class="t.amount >= 0 ? 'income' : 'expense'">
                 <b>{{ t.amount >= 0 ? '+' : '−' }}{{ fmt(Math.abs(t.amount)) }}</b>
               </td>
               <td class="muted">{{ t.note || '—' }}</td>
-              <td class="c-op muted hide-mobile">{{ t.op_user || '—' }}</td>
+              <td class="c-op muted hide-mobile">{{ t.op || '—' }}</td>
               <td class="c-act">
-                <button class="btn btn-sm" @click="editTxn(t)">改</button>
-                <button class="btn btn-sm btn-danger" @click="delTxn(t)">删</button>
+                <template v-if="t.kind === 'manual'">
+                  <button class="btn btn-sm" @click="editTxn(t)">改</button>
+                  <button class="btn btn-sm btn-danger" @click="delTxn(t)">删</button>
+                </template>
+                <template v-else>
+                  <span class="muted small">自动</span>
+                </template>
               </td>
             </tr>
-            <!-- 自动月结（历史落库 + 当月/上月实时）：自动生成，无「改/删」 -->
-            <tr v-for="m in detail.monthly || []" :key="'m' + m.ymd + m.category + m.attribution" class="row-monthly">
-              <td class="c-d"><b>{{ m.ymd }}</b></td>
-              <td class="num" :class="m.amount >= 0 ? 'income' : 'expense'">
-                <b>{{ m.amount >= 0 ? '+' : '−' }}{{ fmt(Math.abs(m.amount)) }}</b>
-              </td>
-              <td class="muted">月结 · {{ m.category }}</td>
-              <td class="c-op muted hide-mobile">{{ m.attribution }}</td>
-              <td class="c-act muted small">自动</td>
-            </tr>
-            <tr v-if="!detail.rows.length && !(detail.monthly || []).length">
+            <tr v-if="!allTxns.length">
               <td colspan="5" class="muted" style="text-align:center;padding:24px 0">还没有资金记录</td>
             </tr>
           </tbody>
