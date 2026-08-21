@@ -52,9 +52,17 @@ r.get(
         percent: total?.amount ? Math.round((yearSpent / total.amount) * 100) : 0,
       },
       categories: cats.map((c) => {
-        const spent = spentMap[c.category] || 0;
+        // 兼容多分类合并（category 存 JSON 数组字符串）与旧单分类
+        let catNames = [];
+        try {
+          const arr = JSON.parse(c.category);
+          if (Array.isArray(arr)) catNames = arr.map(String).filter(Boolean);
+        } catch (_) {}
+        if (!catNames.length) catNames = [c.category];
+        const spent = catNames.reduce((s, n) => s + (spentMap[n] || 0), 0);
         return {
-          category: c.category,
+          category: c.category,   // 原始存储值（编辑/删除用它匹配数据库）
+          categories: catNames,   // 分类数组（前端显示「餐饮、交通」）
           amount: c.amount,
           expression: c.expression || "",
           sort: c.sort || 0,
@@ -95,23 +103,21 @@ r.post(
       ? req.body.categories.map((c) => (c || "").trim()).filter(Boolean)
       : [(req.body?.category || "").trim()];
 
-    // 多个分类时，传入的 amount 视为「这些分类的总预算」，按分类数平分后逐条写入，
-    // 这样每个分类卡片显示的剩余 = 平分值 - 已花费，合计即输入的总预算。
-    const per = cats.length > 1 ? amount / cats.length : amount;
+    // 多分类合并为一条预算：category 存 JSON 数组字符串（如 '["餐饮","交通"]'），
+    // 金额 = 这几个分类共享的总预算；单分类保持原样（category 存分类名）
+    const storeCat = cats.length > 1 ? JSON.stringify(cats) : (cats[0] || "");
+    if (!storeCat) return res.status(400).json({ error: "请选择分类" });
+
+    // 已存在的 sort 保留；新记录用当前已有条数 * 10 当初始 sort
+    const cur = db.prepare("SELECT sort FROM budgets WHERE book_id=? AND year=? AND category=?").get(req.bookId, year, storeCat);
+    const sortVal = cur?.sort || ((db.prepare("SELECT COUNT(*) AS n FROM budgets WHERE book_id=? AND year=?").get(req.bookId, year).n + 1) * 10);
 
     const stmt = db.prepare(
       `INSERT INTO budgets (book_id, year, category, amount, expression, sort) VALUES (?,?,?,?,?,?)
        ON CONFLICT(book_id, year, category) DO UPDATE SET amount=excluded.amount, expression=excluded.expression, sort=COALESCE(excluded.sort, sort)`
     );
-    const tx = db.transaction(() => {
-      for (const category of cats) {
-        // 新分类用 cats.indexOf*10 当作初始 sort（按创建顺序展示）；已存在保留 sort
-        const sortVal = (cats.indexOf(category) + 1) * 10;
-        stmt.run(req.bookId, year, category, per, expression, sortVal);
-      }
-    });
-    tx();
-    res.json({ ok: true, count: cats.length, per, total: amount });
+    stmt.run(req.bookId, year, storeCat, amount, expression, sortVal);
+    res.json({ ok: true, count: cats.length, total: amount, per: amount });
   })
 );
 

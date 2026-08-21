@@ -154,17 +154,23 @@ r.get(
   requireBook,
   wrap((req, res) => {
     const year = Number(req.query.year) || new Date().getFullYear();
+    // 支持多分类（逗号分隔，如 categories=餐饮,交通）；兼容旧单 category
+    const categories = (req.query.categories || "").split(",").map((s) => s.trim()).filter(Boolean);
     const category = (req.query.category || "").trim();
+    const useCats = categories.length ? categories : (category ? [category] : []);
+    const where = useCats.length
+      ? `AND category IN (${useCats.map(() => "?").join(",")})`
+      : "";
     const rows = db
       .prepare(
         `SELECT substr(flow_time,1,7) AS month,
                 COALESCE(SUM(CASE WHEN type='expense' THEN amount END),0) AS expense,
                 COALESCE(SUM(CASE WHEN type='income'  THEN amount END),0) AS income
          FROM flows WHERE book_id=? AND substr(flow_time,1,4)=?
-         ${category ? "AND category=?" : ""}
+         ${where}
          GROUP BY month ORDER BY month`
       )
-      .all(req.bookId, String(year), ...(category ? [category] : []));
+      .all(req.bookId, String(year), ...useCats);
     // 补齐 12 个月
     const map = Object.fromEntries(rows.map((x) => [x.month, x]));
     const out = [];

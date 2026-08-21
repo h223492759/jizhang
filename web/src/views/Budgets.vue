@@ -42,17 +42,12 @@ function evalExpr(s) {
   }
 }
 const liveAmount = computed(() => evalExpr(form.value.amount));
-// 添加/编辑分类预算时，实时看每个所选分类的「分摊后预算 / 已用 / 剩余（可负）」
-// 多分类时输入的是【总额】，后端会平分到各分类，这里预览也要按分摊值算
+// 添加/编辑分类预算时的实时预览：总额预算 vs 各所选分类已用（多分类合并为一条共享预算）
 const livePreview = computed(() => {
   const amt = liveAmount.value;
   if (!isFinite(amt)) return [];
-  const count = form.value.categories.length || 1;
-  const per = amt / count;
-  return form.value.categories.map((cat) => {
-    const spent = data.value.spentByCategory?.[cat] || 0;
-    return { cat, budget: per, spent, remaining: per - spent };
-  });
+  const spent = form.value.categories.reduce((s, cat) => s + (data.value.spentByCategory?.[cat] || 0), 0);
+  return [{ cat: form.value.categories.join('、') || '（未选分类）', budget: amt, spent, remaining: amt - spent }];
 });
 
 function openTotal() {
@@ -67,8 +62,10 @@ function openCat() {
 }
 function editCat(c) {
   mode.value = "cat";
+  // 多分类合并记录回填 categories 数组（兼容旧单分类）
+  const names = (c.categories && c.categories.length ? c.categories : [c.category]);
   // 保留原始算式（再次修改时算式仍可见）
-  form.value = { categories: [c.category], amount: c.expression || String(c.amount), expression: c.expression || "" };
+  form.value = { categories: [...names], amount: c.expression || String(c.amount), expression: c.expression || "" };
   showDialog.value = true;
 }
 function toggleCat(cat) {
@@ -148,7 +145,10 @@ async function openChart(c) {
   showDetail.value = false;
   detailList.value = [];
   try {
-    const { data } = await api.get("/stats/monthly", { params: { year: year.value, category: c.category } });
+    const names = (c.categories && c.categories.length ? c.categories : [c.category]);
+    const { data } = await api.get("/stats/monthly", {
+      params: { year: year.value, categories: names.join(",") },
+    });
     chartMonthly.value = data;
   } catch (e) {
     toast(e.message);
@@ -177,14 +177,16 @@ async function onChartClick(params) {
   const m = chartMonthly.value[params?.dataIndex];
   if (!m) return;
   const ym = m.month;
-  detailMonth.value = `${ym} ${chartCat.value?.category} 明细`;
+  const names = (chartCat.value?.categories && chartCat.value.categories.length
+      ? chartCat.value.categories : [chartCat.value?.category]);
+  detailMonth.value = `${ym} ${names.join('、')} 明细`;
   showDetail.value = true;
   detailLoading.value = true;
   detailList.value = [];
   try {
     const { data } = await api.get("/flows", {
       params: {
-        category: chartCat.value.category,
+        category: names.join(','),
         start: `${ym}-01`, end: `${ym}-31`,
         pageSize: 200, sortBy: "flow_time", order: "asc",
       },
@@ -253,7 +255,7 @@ async function doCopy() {
     <div class="grid cat-list">
       <div v-for="(c, i) in data.categories" :key="c.category" class="card cat-item" @click="openChart(c)" title="点击查看每月支出柱状图">
         <div class="cat-top">
-          <b>{{ store.categories.find(x => x.name === c.category)?.icon || '💰' }} {{ c.category }}</b>
+          <b>{{ (c.categories || [c.category]).map(n => store.categories.find(x => x.name === n)?.icon || '💰').join(' ') }} {{ (c.categories || [c.category]).join('、') }}</b>
           <div class="cat-actions" @click.stop>
             <button class="btn btn-sm icon-btn" :disabled="i === 0" @click="moveCat(c, -1)" title="上移">↑</button>
             <button class="btn btn-sm icon-btn" :disabled="i >= data.categories.length - 1" @click="moveCat(c, 1)" title="下移">↓</button>
@@ -304,10 +306,10 @@ async function doCopy() {
           </span>
         </label>
 
-        <!-- 实时显示每个所选分类的「分摊预算 / 已用 / 剩余（可负）」 -->
+        <!-- 实时预览：所选分类（可多选）共享总额预算 vs 已用 / 剩余 -->
         <div class="preview-box" v-if="mode === 'cat' && livePreview.length">
           <div class="muted small" style="margin-bottom:6px">
-            按当前总额平分后，各分类：
+            所选分类共享该总额预算：
           </div>
           <div v-for="p in livePreview" :key="p.cat" class="prev-row">
             <span>{{ p.cat }}</span>
