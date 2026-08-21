@@ -121,6 +121,13 @@ async function moveCat(c, dir) {
   } catch (e) { toast(e.message); }
 }
 
+// 归属人缩写（最多 2 字，空则"我"）
+function ownerShort(name) {
+  const s = (name || '').trim();
+  if (!s) return '我';
+  return s.length <= 2 ? s : s.slice(-2);
+}
+
 // 卡片标题：单分类显示分类名；多分类显示「多分类N」（N = 该多分类在列表中的序号，从 1 开始）
 function catTitle(c, i) {
   const names = (c.categories && c.categories.length) ? c.categories : [c.category];
@@ -367,6 +374,10 @@ async function doCopy() {
             <div v-for="it in detailList" :key="it.id" class="cd-item">
               <span class="cd-date">{{ (it.flow_time || '').slice(5, 10) }}</span>
               <span class="cd-desc">{{ it.description || it.category }}</span>
+              <span class="cd-owner" :title="it.attribution || '我'">
+                <span class="owner-dot" :style="{background: it.attribution_color || '#7c8cff'}"></span>
+                <span class="owner-label">{{ ownerShort(it.attribution) }}</span>
+              </span>
               <span class="cd-pay muted small">{{ it.payment_method || '未标注' }}</span>
               <span class="cd-amt expense">{{ fmt(it.amount) }}</span>
             </div>
@@ -426,8 +437,11 @@ async function doCopy() {
 .cd-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .cd-head .btn { margin-left: auto; }
 .cd-list { max-height: 46vh; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
-.cd-item { display: grid; grid-template-columns: 64px 1fr auto auto; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 8px; background: var(--surface-2); font-size: 14px; }
+.cd-item { display: grid; grid-template-columns: 64px 1fr 76px auto auto; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 8px; background: var(--surface-2); font-size: 14px; }
 .cd-item:hover { background: var(--surface-3, var(--surface-2)); }
+.cd-owner { display: inline-flex; align-items: center; gap: 4px; min-width: 60px; }
+.cd-owner .owner-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.cd-owner .owner-label { font-size: 12px; color: var(--text-2); }
 .cd-date { color: var(--text-2); font-variant-numeric: tabular-nums; }
 .cd-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cd-pay { font-size: 12px; }

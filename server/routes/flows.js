@@ -80,15 +80,22 @@ r.get(
     if (end) { where.push("f.flow_time <= @end"); p.end = end + " 23:59:59"; }
     if (type) { where.push("f.type = @type"); p.type = type; }
     if (category) {
-      // 支持多分类：逗号分隔（如 category=餐饮,交通）→ IN 查询（预算多分类卡片点柱子展开明细用）
-      const cats = category.split(",").map((s) => s.trim()).filter(Boolean);
+      // 支持多分类：① JSON 数组字符串（如 '["餐饮","交通"]'，预算多分类预算原值）②逗号分隔
+      let cats = [];
+      if (category.trim().startsWith("[")) {
+        try {
+          const arr = JSON.parse(category);
+          if (Array.isArray(arr)) cats = arr.map((s) => String(s).trim()).filter(Boolean);
+        } catch (_) {}
+      }
+      if (!cats.length) cats = category.split(",").map((s) => s.trim()).filter(Boolean);
       if (cats.length > 1) {
         const names = cats.map((_, i) => `@cat${i}`).join(",");
         where.push(`f.category IN (${names})`);
         cats.forEach((c, i) => { p[`cat${i}`] = c; });
-      } else {
+      } else if (cats.length === 1) {
         where.push("f.category = @category");
-        p.category = category;
+        p.category = cats[0];
       }
     }
     if (payment) { where.push("(f.payment_method = @payment OR (@payment='未标注' AND f.payment_method=''))"); p.payment = payment; }
