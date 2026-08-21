@@ -239,6 +239,8 @@ addColumnIfMissing("users", "color", "color TEXT NOT NULL DEFAULT '#7c8cff'");
 
 // 预算金额支持算式（如 "1000+200"），保存时存计算结果，原始算式留作备注
 addColumnIfMissing("budgets", "expression", "expression TEXT NOT NULL DEFAULT ''");
+// 分类预算调序（网页端 ↑↓ 操作；安卓端按 sort 显示）
+addColumnIfMissing("budgets", "sort", "sort INTEGER NOT NULL DEFAULT 0");
 
 // 分类钱包可关联某一流水分类（自某日期起），该分类的支出自动加减到钱包余额
 addColumnIfMissing("wallets", "link_from", "link_from TEXT NOT NULL DEFAULT ''");

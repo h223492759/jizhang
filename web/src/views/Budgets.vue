@@ -92,6 +92,35 @@ async function save() {
     load();
   } catch (e) { toast(e.message); }
 }
+async // 上移/下移分类预算（同步服务器 sort；安卓端读 sort 显示）
+async function moveCat(c, dir) {
+  const list = data.value.categories;
+  const i = list.findIndex((x) => x.category === c.category);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  // 互换 sort（确保新 sort 与原 sort 不冲突：用两者中位值）
+  const a = list[i], b = list[j];
+  const sortA = Math.max(1, (a.sort || 0));
+  const sortB = Math.max(1, (b.sort || 0));
+  // 简单处理：直接交换 sort，并服务端持久化
+  const newSortA = sortB;
+  const newSortB = sortA;
+  // 本地立即反映
+  a.sort = newSortA;
+  b.sort = newSortB;
+  data.value.categories = [...list]; // 触发响应式
+  try {
+    await api.post('/budgets/reorder', {
+      year: Number(route.query.year) || new Date().getFullYear(),
+      items: [
+        { category: a.category, sort: newSortA },
+        { category: b.category, sort: newSortB },
+      ],
+    });
+    toast('已调序');
+  } catch (e) { toast(e.message); }
+}
+
 async function delCat(c) {
   if (!confirm(`删除「${c.category}」的预算？`)) return;
   await api.delete("/budgets", { params: { year: year.value, category: c.category } });
@@ -219,12 +248,14 @@ async function doCopy() {
       <button class="btn btn-sm btn-primary" @click="openCat">＋ 添加分类预算</button>
     </div>
     <div class="grid cat-list">
-      <div v-for="c in data.categories" :key="c.category" class="card cat-item" @click="openChart(c)" title="点击查看每月支出柱状图">
+      <div v-for="(c, i) in data.categories" :key="c.category" class="card cat-item" @click="openChart(c)" title="点击查看每月支出柱状图">
         <div class="cat-top">
           <b>{{ store.categories.find(x => x.name === c.category)?.icon || '💰' }} {{ c.category }}</b>
-          <div>
-            <button class="btn btn-sm" @click.stop="editCat(c)">改</button>
-            <button class="btn btn-sm btn-danger" @click.stop="delCat(c)">删</button>
+          <div class="cat-actions" @click.stop>
+            <button class="btn btn-sm icon-btn" :disabled="i === 0" @click="moveCat(c, -1)" title="上移">↑</button>
+            <button class="btn btn-sm icon-btn" :disabled="i >= data.categories.length - 1" @click="moveCat(c, 1)" title="下移">↓</button>
+            <button class="btn btn-sm" @click="editCat(c)">改</button>
+            <button class="btn btn-sm btn-danger" @click="delCat(c)">删</button>
           </div>
         </div>
         <div class="bar"><i :style="{ width: Math.min(100, c.percent) + '%', background: barColor(c.percent) }"></i></div>
@@ -354,7 +385,9 @@ async function doCopy() {
 .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 2px; border-bottom: 1px solid var(--border); flex-wrap: wrap; margin-bottom: 16px; }
 .modal-head .modal-title { margin: 0; }
 .head-btns { gap: 8px; }
-.cat-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.cat-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 6px; flex-wrap: wrap; }
+.cat-actions { display: inline-flex; gap: 4px; align-items: center; }
+.icon-btn { padding: 2px 8px; min-width: 26px; }
 .cat-nums { display: flex; justify-content: space-between; font-size: 13px; margin-top: 8px; }
 .cat-pct { font-size: 12px; margin-top: 4px; color: var(--text-2); }
 .cat-pct.over { color: var(--expense); }

@@ -18,7 +18,7 @@ const flowDlg = ref({ open: false, category: null, type: 'expense', flows: [], l
 const editDlg = ref({ open: false, flow: null, description: '', amount: '', payment_method: '', category: '', type: 'expense' });
 
 async function showFlows(c) {
-  flowDlg.value = { open: true, category: c, type: c.type, flows: [], loading: true, total: 0, sort: 'time', order: 'desc' };
+  flowDlg.value = { open: true, category: c, type: c.type, flows: [], loading: true, total: 0, sort: 'time', order: 'desc', selectedId: null };
   try {
     const { data } = await api.get("/flows", {
       params: { type: c.type, category: c.name, pageSize: 200, sortBy: 'flow_time', order: 'desc' },
@@ -90,7 +90,26 @@ async function deleteFlowInList(f) {
     toast('已删除');
     flowDlg.value.flows = flowDlg.value.flows.filter((x) => x.id !== f.id);
     flowDlg.value.total = Math.max(0, flowDlg.value.total - 1);
+    if (flowDlg.value.selectedId === f.id) flowDlg.value.selectedId = null;
   } catch (e) { toast(e.message); }
+}
+
+// 当前选中的流水（头部改/删按钮操作它）
+const selectedFlow = computed(() =>
+  flowDlg.value.flows.find((x) => x.id === flowDlg.value.selectedId) || null
+);
+function editSelectedFlow() {
+  if (selectedFlow.value) openEditFlow(selectedFlow.value);
+}
+function deleteSelectedFlow() {
+  if (selectedFlow.value) deleteFlowInList(selectedFlow.value);
+}
+
+// 归属人缩写（最多 2 字，空则"我"）
+function ownerInitials(name) {
+  const s = (name || '').trim();
+  if (!s) return '我';
+  return s.length <= 2 ? s : s.slice(-2);
 }
 
 const ICONS = [
@@ -298,7 +317,7 @@ const mergeTargets = computed(() => {
 
     <!-- 该分类下的流水列表弹窗（点击 📊N 条流水 徽标） -->
     <div v-if="flowDlg.open" class="modal-mask" @click.self="closeFlows">
-      <div class="modal" style="max-width: 780px">
+      <div class="modal" style="max-width: 820px">
         <div class="modal-head">
           <b>📊 {{ flowDlg.category?.icon }} {{ flowDlg.category?.name }} 的流水</b>
           <span class="muted">共 {{ flowDlg.total }} 笔</span>
@@ -309,21 +328,35 @@ const mergeTargets = computed(() => {
               {{ flowDlg.order==='desc'?'↓ 降序':'↑ 升序' }}
             </button>
           </div>
-          <button class="btn btn-sm" style="margin-left:auto" @click="closeFlows">关闭</button>
+          <!-- 头部置顶改/删按钮：永远可见，操作当前选中行（不依赖滚动到行内按钮） -->
+          <div class="row" style="margin-left:auto;gap:6px">
+            <button class="btn btn-sm" :disabled="!flowDlg.selectedId" @click="editSelectedFlow">改</button>
+            <button class="btn btn-sm" style="color:var(--expense,#ef4444);border-color:var(--expense,#ef4444)" :disabled="!flowDlg.selectedId" @click="deleteSelectedFlow">删</button>
+            <button class="btn btn-sm" @click="closeFlows">关闭</button>
+          </div>
         </div>
         <div class="modal-body" style="max-height: 60vh; overflow:auto">
           <div v-if="flowDlg.loading" class="muted" style="padding:24px;text-align:center">加载中…</div>
           <div v-else-if="sortedFlows.length" class="flow-list">
-            <div v-for="f in sortedFlows" :key="f.id" class="flow-row">
+            <div
+              v-for="f in sortedFlows" :key="f.id"
+              class="flow-row"
+              :class="{ selected: flowDlg.selectedId === f.id }"
+              @click="flowDlg.selectedId = f.id"
+            >
               <span class="flow-date muted">{{ (f.flow_time||'').slice(0,10) }}</span>
               <span class="flow-name">{{ f.description || f.category }}</span>
               <span class="flow-pay muted" v-if="f.payment_method">{{ f.payment_method }}</span>
               <span class="flow-amt" :class="f.type">
                 {{ f.type==='expense' ? '-' : '+' }}{{ Number(f.amount).toFixed(2) }}
               </span>
+              <span class="flow-owner" :title="f.attribution || '我'">
+                <span class="owner-dot" :style="{background: f.attribution_color || '#7c8cff'}"></span>
+                <span class="owner-label">{{ ownerInitials(f.attribution) }}</span>
+              </span>
               <div class="flow-row-actions">
-                <button class="row-btn" @click="openEditFlow(f)" title="修改">改</button>
-                <button class="row-btn del" @click="deleteFlowInList(f)" title="删除">删</button>
+                <button class="row-btn" @click.stop="openEditFlow(f)" title="修改">改</button>
+                <button class="row-btn del" @click.stop="deleteFlowInList(f)" title="删除">删</button>
               </div>
             </div>
           </div>
@@ -383,17 +416,24 @@ const mergeTargets = computed(() => {
 .seg.sm button.on { background: var(--surface); color: var(--text); font-weight: 600; }
 .modal-body { padding: 8px 16px 16px; }
 .flow-list { display: flex; flex-direction: column; gap: 6px; }
-/* 流水行：flex 布局（5 项：日期/名称/支付/金额/按钮），actions 强制不压缩 → 改/删永远显示完整 */
+/* 流水行：flex 布局（6 项：日期/名称/支付/金额/归属/按钮），actions 强制不压缩 → 改/删永远显示完整 */
 .flow-row {
   display: flex; align-items: center; gap: 8px;
   padding: 7px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); font-size: 12.5px;
+  cursor: pointer; transition: background .12s;
 }
+.flow-row:hover { background: var(--surface); }
+.flow-row.selected { border-color: var(--primary); background: var(--primary-soft); }
 .flow-date { width: 78px; flex-shrink: 0; }
 .flow-name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--text); }
 .flow-pay { width: 64px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .flow-amt { width: 72px; flex-shrink: 0; text-align: right; font-weight: 700; }
 .flow-amt.expense { color: var(--expense); }
 .flow-amt.income { color: var(--income); }
+/* 归属人：圆点（用户专属色）+ 缩写标签（参考安卓 ownerColor） */
+.flow-owner { flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; min-width: 56px; }
+.owner-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(0,0,0,.05); }
+.owner-label { font-size: 11px; color: var(--text-2); white-space: nowrap; }
 .flow-row-actions { flex-shrink: 0; display: inline-flex; gap: 4px; white-space: nowrap; }
 .row-btn {
   border: 1px solid var(--border); background: var(--surface); color: var(--text-2);

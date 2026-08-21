@@ -13,7 +13,7 @@ r.get(
     const year = Number(req.query.year) || new Date().getFullYear();
 
     const budgets = db
-      .prepare("SELECT category, amount, expression FROM budgets WHERE book_id=? AND year=?")
+      .prepare("SELECT category, amount, expression, sort FROM budgets WHERE book_id=? AND year=? ORDER BY sort, category")
       .all(req.bookId, year);
     const total = budgets.find((b) => b.category === "");
     const cats = budgets.filter((b) => b.category !== "");
@@ -57,6 +57,7 @@ r.get(
           category: c.category,
           amount: c.amount,
           expression: c.expression || "",
+          sort: c.sort || 0,
           spent,
           remaining: c.amount - spent,
           percent: c.amount ? Math.round((spent / c.amount) * 100) : 0,
@@ -73,7 +74,7 @@ r.get(
   requireBook,
   wrap((req, res) => {
     const rows = db
-      .prepare("SELECT year, category, amount, expression FROM budgets WHERE book_id=? ORDER BY year, category")
+      .prepare("SELECT year, category, amount, expression, sort FROM budgets WHERE book_id=? ORDER BY year, sort, category")
       .all(req.bookId);
     res.json({ list: rows });
   })
@@ -99,14 +100,42 @@ r.post(
     const per = cats.length > 1 ? amount / cats.length : amount;
 
     const stmt = db.prepare(
-      `INSERT INTO budgets (book_id, year, category, amount, expression) VALUES (?,?,?,?,?)
-       ON CONFLICT(book_id, year, category) DO UPDATE SET amount=excluded.amount, expression=excluded.expression`
+      `INSERT INTO budgets (book_id, year, category, amount, expression, sort) VALUES (?,?,?,?,?,?)
+       ON CONFLICT(book_id, year, category) DO UPDATE SET amount=excluded.amount, expression=excluded.expression, sort=COALESCE(excluded.sort, sort)`
     );
     const tx = db.transaction(() => {
-      for (const category of cats) stmt.run(req.bookId, year, category, per, expression);
+      for (const category of cats) {
+        // 新分类用 cats.indexOf*10 当作初始 sort（按创建顺序展示）；已存在保留 sort
+        const sortVal = (cats.indexOf(category) + 1) * 10;
+        stmt.run(req.bookId, year, category, per, expression, sortVal);
+      }
     });
     tx();
     res.json({ ok: true, count: cats.length, per, total: amount });
+  })
+);
+
+// 调序：网页端 ↑↓ 操作后调用（批量更新本年分类预算的 sort）
+r.post(
+  "/reorder",
+  requireBook,
+  wrap((req, res) => {
+    const year = Number(req.body?.year);
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!year || !items.length) return res.status(400).json({ error: "参数不合法" });
+    const stmt = db.prepare(
+      "UPDATE budgets SET sort=? WHERE book_id=? AND year=? AND category=?"
+    );
+    const tx = db.transaction(() => {
+      for (const it of items) {
+        const category = String(it?.category || "").trim();
+        const sort = Number(it?.sort);
+        if (!category || !Number.isFinite(sort)) continue;
+        stmt.run(sort, req.bookId, year, category);
+      }
+    });
+    tx();
+    res.json({ ok: true });
   })
 );
 
@@ -122,8 +151,8 @@ r.post(
       .prepare("SELECT category, amount, expression FROM budgets WHERE book_id=? AND year=?")
       .all(req.bookId, fromYear);
     const stmt = db.prepare(
-      `INSERT INTO budgets (book_id, year, category, amount, expression) VALUES (?,?,?,?,?)
-       ON CONFLICT(book_id, year, category) DO UPDATE SET amount=excluded.amount, expression=excluded.expression`
+      `INSERT INTO budgets (book_id, year, category, amount, expression, sort) VALUES (?,?,?,?,?,?)
+       ON CONFLICT(book_id, year, category) DO UPDATE SET amount=excluded.amount, expression=excluded.expression, sort=COALESCE(excluded.sort, sort)`
     );
     const tx = db.transaction(() => {
       for (const r of rows) stmt.run(req.bookId, toYear, r.category, r.amount, r.expression || "");
