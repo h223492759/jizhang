@@ -257,6 +257,8 @@ r.get(
       .prepare("SELECT * FROM wallets WHERE id=? AND book_id=?")
       .get(req.params.id, req.bookId);
     if (!w) return res.status(404).json({ error: "钱包不存在" });
+    // 清理残留月结（老版本落库的 wallet_txns 月结记录；月结现改为纯实时聚合，不再落库）
+    db.prepare("DELETE FROM wallet_txns WHERE wallet_id=? AND book_id=? AND note LIKE '%月结%'").run(w.id, req.bookId);
     const rows = db
       .prepare(
         `SELECT id, amount, ymd, note, user_id, ${OP_EXPR} AS op_user, created_at
@@ -282,21 +284,10 @@ r.get(
       linkedRows.push({ link: l, rows });
       linkedSum += rows.reduce((s, x) => s + (x.type === "income" ? Number(x.amount) : -Number(x.amount)), 0);
     }
-    // 月结：历史月（< 上月）从 wallet_txns 读（reconcileMonthClose 落库）；
-    // 当月/上月实时聚合；合并返回
-    // GET 时先做一次老格式迁移（YYYY-MM 月结·X·Y → 月结·X·Y，收入支出都重建）
-    migrateMonthCloseFormat(req.bookId);
-    const lastMonthDay = dayjs().subtract(1, "month").endOf("month").format("YYYY-MM-DD");
-    // 历史月：从 wallet_txns 读（note 含「月结 · 」），取 ymd < 上月月底的最后一天
-    const historical = db
-      .prepare(
-        `SELECT id, amount, ymd, note FROM wallet_txns
-         WHERE wallet_id=? AND book_id=? AND note LIKE '%月结%' AND ymd < ?
-         ORDER BY ymd DESC, id DESC`
-      )
-      .all(w.id, req.bookId, lastMonthDay);
-    // 当月/上月：实时聚合（按月 × 分类 × 归属人 × 类型），收入/支出都算
-    const liveMap = new Map();
+    // 月结：全量实时聚合（不落库！）。
+    // 关键：note 不含月份，若 upsert 落库按 note 唯一 → 每月互相覆盖只剩最后一条（历史月结缺失的根因）。
+    // 改为一条 GROUP BY 查全部分类/全部月份（自 link_from 起），每次 GET 都最新、无状态、天然正确。
+    const monthly = [];
     for (const l of linkLinks) {
       if (!l.cat || !l.from) continue;
       const mrows = db
@@ -305,34 +296,25 @@ r.get(
                   CASE WHEN attribution='' OR attribution IS NULL THEN '未标注' ELSE attribution END AS attribution,
                   SUM(amount) AS sum
            FROM flows
-           WHERE book_id=? AND category=? AND substr(flow_time,1,10) >= ?
-             AND substr(flow_time,1,7) >= ?
+           WHERE book_id=? AND category=? AND type IN ('expense','income')
+             AND substr(flow_time,1,10) >= ?
            GROUP BY ym, type, category, attribution`
         )
-        .all(req.bookId, l.cat, l.from, dayjs().subtract(1, "month").format("YYYY-MM"));
+        .all(req.bookId, l.cat, l.from);
       for (const m of mrows) {
-        const key = `${m.ym}|${m.type}|${m.category}|${m.attribution}`;
-        if (!liveMap.has(key)) {
-          const lastDay = dayjs(m.ym + "-01").endOf("month").format("YYYY-MM-DD");
-          liveMap.set(key, { ym: m.ym, ymd: lastDay, type: m.type, category: m.category, attribution: m.attribution, sum: 0 });
-        }
-        liveMap.get(key).sum += Number(m.sum || 0);
+        const sum = Number(m.sum || 0);
+        if (sum <= 0) continue;
+        const lastDay = dayjs(m.ym + "-01").endOf("month").format("YYYY-MM-DD");
+        monthly.push({
+          ym: m.ym,
+          ymd: lastDay,
+          type: m.type,
+          category: m.category,
+          attribution: m.attribution,
+          amount: m.type === "expense" ? -sum : sum,
+        });
       }
     }
-    const liveRows = [...liveMap.values()]
-      .filter((m) => m.sum > 0)
-      .map((m) => ({ ...m, amount: m.type === "expense" ? -m.sum : m.sum }));
-    // 合并：历史月（来自 wallet_txns，新格式 note '月结 · X · Y'，兼容老格式）+ 当月/上月（实时聚合）
-    const monthly = [];
-    for (const h of historical) {
-      const m1 = /^月结 · (.+?) · (.+)$/.exec(h.note || "");
-      const m2 = /^\d{4}-\d{2} 月结 · (.+?) · (.+)$/.exec(h.note || "");
-      const mm = m1 || m2;
-      if (!mm) continue;
-      const amt = Number(h.amount || 0);
-      monthly.push({ ym: (h.ymd || "").slice(0, 7), ymd: h.ymd, type: amt < 0 ? "expense" : "income", category: mm[1], attribution: mm[2], amount: amt });
-    }
-    for (const l of liveRows) monthly.push(l);
     // 排序：按 ymd DESC → 支出优先 → 分类 → 归属人
     monthly.sort((a, b) => (a.ymd < b.ymd ? 1 : a.ymd > b.ymd ? -1 : a.category.localeCompare(b.category, "zh") || a.attribution.localeCompare(b.attribution, "zh")));
     res.json({
