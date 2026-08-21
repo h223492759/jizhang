@@ -131,7 +131,8 @@ async function saveWallet() {
   // 兼容旧字段：第一行的 from/cat 写到 link_from/link_category
   const first = cleanLinks[0] || { cat: "", from: "" };
   // 定期存入规则（清空无效行）
-  const depositRules = walletForm.value.deposit_rules
+  const depositRulesRaw = walletForm.value.deposit_rules;
+  const depositRules = depositRulesRaw
     .filter((r) => r.cat && r.cat.trim() && isFinite(evalExpr(r.amount)) && evalExpr(r.amount) > 0)
     .map((r) => ({
       cat: r.cat.trim(),
@@ -140,6 +141,15 @@ async function saveWallet() {
       start_ym: (r.start_ym || "").trim(),
       end_ym: (r.end_ym || "").trim(),
     }));
+  // 规则无效提示：用户填了行但全部被过滤掉时给出明确原因
+  if (depositRulesRaw.length > 0 && depositRules.length === 0) {
+    const reasons = [];
+    for (const r of depositRulesRaw) {
+      if (!r.cat || !r.cat.trim()) reasons.push("分类未选");
+      else if (!isFinite(evalExpr(r.amount)) || evalExpr(r.amount) <= 0) reasons.push(`「${r.cat}」金额无效（${r.amount}）`);
+    }
+    return toast(`定存细则未保存：${reasons.join("；")}`);
+  }
   const payload = {
     name: walletForm.value.name.trim(),
     icon: walletForm.value.icon.trim() || "👛",
