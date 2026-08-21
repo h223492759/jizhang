@@ -501,7 +501,7 @@ async function saveTxnEdit() {
             暂无定存细则。点「修改钱包信息」→ 定存细则 Tab → 添加规则并保存。
             <details v-if="detail.wallet._rawDepositRules" style="margin-top:6px; font-size:11px">
               <summary style="cursor:pointer; color:var(--muted)">DB 原始值（debug）</summary>
-              <pre style="background:var(--surface-2); padding:6px; border-radius:4px; margin-top:4px; white-space:pre-wrap; word-break:break-all">raw: {{ detail.wallet._rawDepositRules }} | parsed.length: {{ (detail.wallet._parsedDepositRules || []).length }} | type: {{ typeof detail.wallet._parsedDepositRules }}</pre>
+              <pre style="background:var(--surface-2); padding:6px; border-radius:4px; margin-top:4px; white-space:pre-wrap; word-break:break-all">{{ detail.wallet._rawDepositRules }}</pre>
             </details>
           </div>
           <div style="margin-top:6px; font-size:12px; color:var(--muted)">修改规则：点「修改钱包信息」编辑 → 定存细则 → 保存（保存后提示"已保存（定存细则 N 条）"）</div>

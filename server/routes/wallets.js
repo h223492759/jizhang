@@ -8,7 +8,7 @@ r.use(auth);
 
 // 操作人显示名：优先取用户表当前昵称（改昵称后历史记录同步），取不到才回落历史文本
 const OP_EXPR =
-  "COALESCE((SELECT u.nickname FROM users u WHERE u.id = wallet_txns.user_id), wallet_txns.op_user)";
+  "COALESCE(wallet_txns.op_user, (SELECT u.nickname FROM users u WHERE u.id = wallet_txns.user_id))";
 
 const normDate = (s) => {
   const d = String(s || "").replace(/\D/g, "");
@@ -309,13 +309,13 @@ r.get(
       .prepare("SELECT * FROM wallets WHERE id=? AND book_id=?")
       .get(req.params.id, req.bookId);
     if (!w) return res.status(404).json({ error: "钱包不存在" });
-    w.deposit_rules = parseDepositRules(w);
-    // 定存细则兜底补触发 + 诊断：打开详情页时对匹配的 income 流水补触发一次（幂等防重，
+    // 定存细则兜底补触发（不 mutate w，避免后续 res.json 里重复 parseDepositRules 把数组当字符串解析抛错） + 诊断：打开详情页时对匹配的 income 流水补触发一次（幂等防重，
     // 即使 POST /flows 触发异常漏分配，这里也会补上），并生成诊断信息供前端展示
     const depositDebug = [];
-    if (w.deposit_rules.length) {
+    const _parsedDR = parseDepositRules(w);
+    if (_parsedDR.length) {
       try {
-        for (const r of w.deposit_rules) {
+        for (const r of _parsedDR) {
           const sYm = String(r.start_ym || "").slice(0, 7) || dayjs().subtract(6, "month").format("YYYY-MM");
           const eYm = String(r.end_ym || "").slice(0, 7);
           const flows = db
@@ -410,7 +410,7 @@ r.get(
     // 排序：按 ymd DESC → 支出优先 → 分类 → 归属人
     monthly.sort((a, b) => (a.ymd < b.ymd ? 1 : a.ymd > b.ymd ? -1 : a.category.localeCompare(b.category, "zh") || a.attribution.localeCompare(b.attribution, "zh")));
     res.json({
-      wallet: { ...w, deposit_rules: parseDepositRules(w), _rawDepositRules: w.deposit_rules, _parsedDepositRules: parseDepositRules(w) },
+      wallet: { ...w, deposit_rules: _parsedDR, _rawDepositRules: w.deposit_rules },
       rows,
       balance,
       linkedRows,
