@@ -121,6 +121,19 @@ async function moveCat(c, dir) {
   } catch (e) { toast(e.message); }
 }
 
+async // 卡片标题：单分类显示分类名；多分类显示「多分类N」（N = 该多分类在列表中的序号，从 1 开始）
+function catTitle(c, i) {
+  const names = (c.categories && c.categories.length) ? c.categories : [c.category];
+  if (names.length <= 1) return names[0];
+  let n = 0;
+  for (let k = 0; k <= i; k++) {
+    const kc = data.value.categories[k];
+    const kn = (kc.categories && kc.categories.length) ? kc.categories : [kc.category];
+    if (kn.length > 1) n++;
+  }
+  return `多分类${n}`;
+}
+
 async function delCat(c) {
   if (!confirm(`删除「${c.category}」的预算？`)) return;
   await api.delete("/budgets", { params: { year: year.value, category: c.category } });
@@ -137,6 +150,12 @@ function fmt(n) { return "¥" + Number(n || 0).toLocaleString("zh-CN", { minimum
 // 点击分类预算 → 弹出该分类「当年每月支出」柱状图（复用 /stats/monthly?category=）
 const showChart = ref(false);
 const chartCat = ref(null);
+const chartTitle = computed(() => {
+  const c = chartCat.value;
+  if (!c) return '';
+  const names = (c.categories && c.categories.length) ? c.categories : [c.category];
+  return names.length > 1 ? `多分类（${names.join('、')}）` : names[0];
+});
 const chartMonthly = ref([]);
 async function openChart(c) {
   chartCat.value = c;
@@ -255,7 +274,7 @@ async function doCopy() {
     <div class="grid cat-list">
       <div v-for="(c, i) in data.categories" :key="c.category" class="card cat-item" @click="openChart(c)" title="点击查看每月支出柱状图">
         <div class="cat-top">
-          <b>{{ (c.categories || [c.category]).map(n => store.categories.find(x => x.name === n)?.icon || '💰').join(' ') }} {{ (c.categories || [c.category]).join('、') }}</b>
+          <b>{{ catTitle(c, i) }}</b>
           <div class="cat-actions" @click.stop>
             <button class="btn btn-sm icon-btn" :disabled="i === 0" @click="moveCat(c, -1)" title="上移">↑</button>
             <button class="btn btn-sm icon-btn" :disabled="i >= data.categories.length - 1" @click="moveCat(c, 1)" title="下移">↓</button>
@@ -327,14 +346,14 @@ async function doCopy() {
     <div v-if="showChart" class="modal-mask" @click.self="showChart = false">
       <div class="modal" style="max-width:880px">
         <div class="modal-head">
-          <h3 class="modal-title" style="margin:0">{{ chartCat?.category }} · {{ year }} 年每月支出</h3>
+          <h3 class="modal-title" style="margin:0">{{ chartTitle }} · {{ year }} 年每月支出</h3>
           <button class="btn" @click="showChart = false">关闭</button>
         </div>
         <div class="muted small" style="margin: 2px 0 10px">
           全年合计 {{ fmt(chartTotal) }}
         </div>
         <EChart :option="chartOpt" :height="'340px'" @click="onChartClick" />
-        <p class="muted small" style="margin: 6px 0 0">提示：点击任意一根柱子，可查看该月「{{ chartCat?.category }}」的明细流水 ↓</p>
+        <p class="muted small" style="margin: 6px 0 0">提示：点击任意一根柱子，可查看该月「{{ chartTitle }}」的明细流水 ↓</p>
 
         <!-- 点击柱子后的明细面板 -->
         <div v-if="showDetail" class="chart-detail">
