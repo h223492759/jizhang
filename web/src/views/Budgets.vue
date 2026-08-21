@@ -121,7 +121,7 @@ async function moveCat(c, dir) {
   } catch (e) { toast(e.message); }
 }
 
-async // 卡片标题：单分类显示分类名；多分类显示「多分类N」（N = 该多分类在列表中的序号，从 1 开始）
+// 卡片标题：单分类显示分类名；多分类显示「多分类N」（N = 该多分类在列表中的序号，从 1 开始）
 function catTitle(c, i) {
   const names = (c.categories && c.categories.length) ? c.categories : [c.category];
   if (names.length <= 1) return names[0];

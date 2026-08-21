@@ -3,12 +3,15 @@ import { ref, onMounted, computed } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useStore } from "../store.js";
 import { toast } from "../toast.js";
+import api from "../api.js";
 
 const store = useStore();
 const router = useRouter();
 const route = useRoute();
 const ready = ref(false);
 const menuOpen = ref(false);
+// 版本号：构建时由服务端 /api/meta 下发（如 v260821-1128），显示在顶部「记账本」右侧
+const version = ref("");
 
 const allNav = [
   { name: "dashboard", label: "首页", icon: "🏠" },
@@ -66,6 +69,11 @@ onMounted(async () => {
     if (e.message.includes("登录")) router.push("/login");
   }
   ready.value = true;
+  // 拉版本号显示在侧边栏「记账本」右侧
+  try {
+    const { data } = await api.get("/meta");
+    if (data?.version) version.value = `v${data.version.replace(/^v/i, "")}`;
+  } catch (_) {}
 });
 
 async function switchBook(e) {
@@ -91,7 +99,7 @@ function logout() {
   <div class="shell" v-if="ready">
     <!-- 侧边栏（桌面） -->
     <aside class="side hide-mobile">
-      <div class="side-brand"><img class="brand-logo" src="/logo.png" alt="" /><span>记账本</span></div>
+      <div class="side-brand"><img class="brand-logo" src="/logo.png" alt="" /><span>记账本</span><em class="side-ver">{{ version }}</em></div>
       <nav>
         <a v-for="n in nav" :key="n.name" :class="['nav-item', { active: route.name === n.name }]" @click="go(n.name)">
           <span class="ic">{{ n.icon }}</span>{{ n.label }}
@@ -126,7 +134,7 @@ function logout() {
       <!-- 移动端抽屉 -->
       <div v-if="menuOpen" class="drawer-mask" @click="menuOpen = false">
         <div class="drawer" @click.stop>
-          <div class="side-brand"><img class="brand-logo" src="/logo.png" alt="" /><span>记账本</span></div>
+          <div class="side-brand"><img class="brand-logo" src="/logo.png" alt="" /><span>记账本</span><em class="side-ver">{{ version }}</em></div>
           <a v-for="n in nav" :key="n.name" :class="['nav-item', { active: route.name === n.name }]" @click="go(n.name)">
             <span class="ic">{{ n.icon }}</span>{{ n.label }}
           </a>
@@ -158,6 +166,8 @@ function logout() {
 }
 .side-brand { font-size: 18px; font-weight: 800; padding: 6px 10px 18px; display: flex; align-items: center; gap: 8px; }
 .brand-logo { width: 26px; height: 26px; border-radius: 6px; }
+/* 版本号小字（记账本右侧） */
+.side-ver { font-size: 11px; font-weight: 500; color: var(--text-2, #94a3b8); letter-spacing: 0.2px; margin-left: 2px; }
 .nav-item {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px;
   border-radius: 10px; cursor: pointer; color: var(--text-2); font-size: 14.5px; margin-bottom: 2px;
