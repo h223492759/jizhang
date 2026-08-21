@@ -171,11 +171,17 @@ r.post(
         .map((x) => ({ cat: String(x?.cat || "").trim(), from: normLinkDate(x?.from || "") }))
         .filter((x) => x.cat)
     );
+    // 定期存入规则：JSON 数组 [{cat, owner?, amount}]
+    const depositRules = JSON.stringify(
+      (Array.isArray(req.body?.deposit_rules) ? req.body.deposit_rules : [])
+        .map((x) => ({ cat: String(x?.cat || "").trim(), owner: String(x?.owner || "").trim(), amount: Number(x?.amount || 0) }))
+        .filter((x) => x.cat && x.amount > 0)
+    );
     const max = db
       .prepare("SELECT COALESCE(MAX(sort),0) AS m FROM wallets WHERE book_id=?")
       .get(req.bookId).m;
     const info = db
-      .prepare("INSERT INTO wallets (book_id,name,icon,target,note,sort,link_from,link_category,link_links,client_uuid) VALUES (?,?,?,?,?,?,?,?,?,?)")
+      .prepare("INSERT INTO wallets (book_id,name,icon,target,note,sort,link_from,link_category,link_links,deposit_rules,client_uuid) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
       .run(
         req.bookId,
         name,
@@ -186,6 +192,7 @@ r.post(
         linkFrom,
         linkCategory,
         linkLinks,
+        depositRules,
         uuid || null
       );
     res.json({ id: Number(info.lastInsertRowid) });
@@ -209,7 +216,15 @@ r.put(
         .get(req.bookId, name, cur.id);
       if (dup) return res.status(400).json({ error: `钱包「${name}」已存在` });
     }
-    db.prepare("UPDATE wallets SET name=?, icon=?, target=?, note=?, link_from=?, link_category=?, link_links=? WHERE id=?").run(
+    const depositRules =
+      req.body?.deposit_rules != null
+        ? JSON.stringify(
+            (Array.isArray(req.body.deposit_rules) ? req.body.deposit_rules : [])
+              .map((x) => ({ cat: String(x?.cat || "").trim(), owner: String(x?.owner || "").trim(), amount: Number(x?.amount || 0) }))
+              .filter((x) => x.cat && x.amount > 0)
+          )
+        : cur.deposit_rules;
+    db.prepare("UPDATE wallets SET name=?, icon=?, target=?, note=?, link_from=?, link_category=?, link_links=?, deposit_rules=? WHERE id=?").run(
       name,
       (req.body?.icon ?? cur.icon).toString().trim() || "👛",
       req.body?.target != null ? Number(req.body.target) || 0 : cur.target,
@@ -225,6 +240,7 @@ r.put(
               .filter((x) => x.cat)
           )
         : cur.link_links,
+      depositRules,
       cur.id
     );
     res.json({ ok: true });
@@ -576,4 +592,50 @@ export function migrateMonthCloseFormat(bookId) {
     ).run(bookId);
   }
   return rebuildMonthlyClose(bookId);
+}
+
+// 定期存入（工资自动分配）：收入流水创建时触发。
+// 规则：当月该来源分类的第一笔收入流水，若金额 ≥ 匹配规则总额 → 按规则给各钱包写入 +amount 资金记录
+// 全落库（wallet_txns），读取即普通资金记录，无实时聚合 → 不会卡。
+// 防重：note `工资分配·{cat}·{ym}` 全局唯一（同一分类同一月只分配一次）
+export function tryDeposit(bookId, flow) {
+  if (!flow || !flow.flow_time || !flow.category || flow.type !== "income") return;
+  const ym = String(flow.flow_time).slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(ym)) return;
+  const wallets = db
+    .prepare(
+      "SELECT * FROM wallets WHERE book_id=? AND deposit_rules IS NOT NULL AND deposit_rules != '' AND deposit_rules != '[]'"
+    )
+    .all(bookId);
+  const matched = [];
+  for (const w of wallets) {
+    let rules = [];
+    try { rules = JSON.parse(w.deposit_rules || "[]"); } catch (_) { continue; }
+    if (!Array.isArray(rules)) continue;
+    for (const r of rules) {
+      if (String(r?.cat || "").trim() !== flow.category) continue;
+      if (r?.owner && String(r.owner).trim() !== (flow.attribution || "")) continue;
+      const amount = Number(r?.amount || 0);
+      if (amount > 0) matched.push({ wallet: w, amount });
+    }
+  }
+  if (!matched.length) return;
+  const totalNeed = matched.reduce((s, m) => s + m.amount, 0);
+  if (totalNeed <= 0) return;
+  // 金额必须 ≥ 匹配规则总额
+  if (Number(flow.amount) < totalNeed) return;
+  // 当月该分类是否已分配过
+  const note = `工资分配·${flow.category}·${ym}`;
+  const done = db.prepare("SELECT id FROM wallet_txns WHERE book_id=? AND note=?").get(bookId, note);
+  if (done) return;
+  // 写入各钱包分配记录
+  const stmt = db.prepare(
+    "INSERT INTO wallet_txns (book_id,wallet_id,amount,ymd,note,user_id,op_user) VALUES (?,?,?,?,?,?,?)"
+  );
+  const tx = db.transaction(() => {
+    for (const m of matched) {
+      stmt.run(bookId, m.wallet.id, m.amount, String(flow.flow_time).slice(0, 10), note, flow.user_id || 0, flow.attribution || "");
+    }
+  });
+  tx();
 }

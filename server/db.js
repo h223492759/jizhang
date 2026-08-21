@@ -339,6 +339,11 @@ addColumnIfMissing("savings_items", "as_of_end", "as_of_end TEXT NOT NULL DEFAUL
 // 历史月净资产快照：manual=1 表示人工回填的历史快照，rebuildHistory 不再覆盖该月
 addColumnIfMissing("savings_history", "manual", "manual INTEGER NOT NULL DEFAULT 0");
 
+// 钱包定期存入规则（工资自动分配）：JSON 数组 [{cat, owner?, amount}, ...]
+// cat=来源分类；owner=归属人（空=任意）；amount=固定存入金额
+addColumnIfMissing("wallets", "deposit_rules", "deposit_rules TEXT NOT NULL DEFAULT '[]'");
+
+
 // 给用户分配一个稳定的颜色（按用户名哈希，避免每次刷新都变）
 const USER_PALETTE = ["#6366f1","#ef4444","#f59e0b","#10b981","#3b82f6","#ec4899","#8b5cf6","#14b8a6","#f97316","#0ea5e9","#a855f7","#22c55e"];
 export function pickColor(seed) {

@@ -99,8 +99,19 @@ function openEditWallet(w) {
     initBalance: "",
     note: w.note || "",
     link_links: links,
+    deposit_rules: Array.isArray(w.deposit_rules) && w.deposit_rules.length
+      ? w.deposit_rules.map((x) => ({ cat: x.cat || "", owner: x.owner || "", amount: String(x.amount ?? "") }))
+      : [],
   };
+  if (!walletForm.value.deposit_rules.length) walletForm.value.deposit_rules.push({ cat: "", owner: "", amount: "" });
   showWallet.value = true;
+}
+function addDepositRule() {
+  walletForm.value.deposit_rules.push({ cat: "", owner: "", amount: "" });
+}
+function removeDepositRule(idx) {
+  walletForm.value.deposit_rules.splice(idx, 1);
+  if (!walletForm.value.deposit_rules.length) walletForm.value.deposit_rules.push({ cat: "", owner: "", amount: "" });
 }
 function addLinkLink() {
   walletForm.value.link_links.push({ cat: "", from: "" });
@@ -119,6 +130,10 @@ async function saveWallet() {
     .map((l) => ({ cat: l.cat.trim(), from: (l.from || "").trim() }));
   // 兼容旧字段：第一行的 from/cat 写到 link_from/link_category
   const first = cleanLinks[0] || { cat: "", from: "" };
+  // 定期存入规则（清空无效行）
+  const depositRules = walletForm.value.deposit_rules
+    .filter((r) => r.cat && r.cat.trim() && isFinite(evalExpr(r.amount)) && evalExpr(r.amount) > 0)
+    .map((r) => ({ cat: r.cat.trim(), owner: (r.owner || "").trim(), amount: evalExpr(r.amount) }));
   const payload = {
     name: walletForm.value.name.trim(),
     icon: walletForm.value.icon.trim() || "👛",
@@ -127,6 +142,7 @@ async function saveWallet() {
     link_from: first.from || "",
     link_category: cleanLinks.map((l) => l.cat).join(","),
     link_links: cleanLinks,
+    deposit_rules: depositRules,
   };
   try {
     let wid;
@@ -362,6 +378,24 @@ async function saveTxnEdit() {
           <span class="muted small" v-if="walletForm.link_links.length">
             例：养娃基金关联「孩子」自 2026-01-01 + 「礼金（支）」自 2026-06-01 → 各自起始日后自动加减。
           </span>
+        </div>
+        <div class="field">
+          <span>定期存入（可选，工资自动分配）：每月第一笔该分类收入流水且金额 ≥ 各规则总额时，自动给本钱包存入固定金额（写进资金记录，不实时算不卡）</span>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+            <div v-for="(dr, di) in walletForm.deposit_rules" :key="di" style="display:flex;gap:6px;align-items:center">
+              <select class="input" v-model="dr.cat" style="width:auto;min-width:140px">
+                <option value="">选择收入分类</option>
+                <option v-for="c in categoryOptions.filter(o=>o.type==='income')" :key="c.id" :value="c.name">
+                  {{ c.name }}
+                </option>
+              </select>
+              <input class="input" v-model="dr.owner" placeholder="归属人(可选)" style="width:110px" />
+              <input class="input" v-model="dr.amount" placeholder="金额" style="width:90px" />
+              <button type="button" class="btn" style="padding:2px 10px" @click="removeDepositRule(di)" title="删除该行">×</button>
+            </div>
+            <button type="button" class="btn" style="align-self:flex-start;padding:2px 12px" @click="addDepositRule">+ 添加规则</button>
+          </div>
+          <span class="muted small">例：分类=工资、金额=4000 → 每月第一笔 ≥4000 的工资收入自动存 4000 到本钱包（多个钱包多条规则总额一起判断）。</span>
         </div>
         <label class="field">
           <span>备注（可选）</span>

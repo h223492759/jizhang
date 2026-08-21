@@ -2,6 +2,7 @@ import { Router } from "express";
 import dayjs from "dayjs";
 import { db } from "../db.js";
 import { auth, requireBook, wrap } from "../mw.js";
+import { tryDeposit } from "./wallets.js";
 
 const r = Router();
 r.use(auth);
@@ -327,6 +328,8 @@ r.post(
         source,
         client_uuid: uuid || null,
       });
+    // 定期存入触发（收入流水 → 按钱包规则自动分配）
+    try { tryDeposit(req.bookId, { flow_time, category, attribution: attr.text, type, amount, user_id: req.user.id }); } catch (_) {}
     res.json({ id: info.lastInsertRowid });
   })
 );
