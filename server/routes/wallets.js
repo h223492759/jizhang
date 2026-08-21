@@ -410,7 +410,7 @@ r.get(
     // 排序：按 ymd DESC → 支出优先 → 分类 → 归属人
     monthly.sort((a, b) => (a.ymd < b.ymd ? 1 : a.ymd > b.ymd ? -1 : a.category.localeCompare(b.category, "zh") || a.attribution.localeCompare(b.attribution, "zh")));
     res.json({
-      wallet: { ...w, deposit_rules: parseDepositRules(w), _rawDepositRules: w.deposit_rules },
+      wallet: { ...w, deposit_rules: parseDepositRules(w), _rawDepositRules: w.deposit_rules, _parsedDepositRules: parseDepositRules(w) },
       rows,
       balance,
       linkedRows,
