@@ -281,9 +281,21 @@ r.get(
       linkedRows.push({ link: l, rows });
       linkedSum += rows.reduce((s, x) => s + (x.type === "income" ? Number(x.amount) : -Number(x.amount)), 0);
     }
-    // 月结（自动、实时）：按月 × 分类 × 归属人 聚合关联分类的支出，
-    // 日期 = 该月最后一天，金额 = 当月该分类该归属人的支出总额（流水变动自动反映）
-    const monthlyMap = new Map();
+    // 月结：历史月（< 上月）从 wallet_txns 读（reconcileMonthClose 落库）；
+    // 当月/上月实时聚合；合并返回
+    const thisMonth = dayjs().format("YYYY-MM");
+    const lastMonth = dayjs().subtract(1, "month").format("YYYY-MM");
+    const lastMonthDay = dayjs().subtract(1, "month").endOf("month").format("YYYY-MM-DD");
+    // 历史月：从 wallet_txns 读（note 含「月结 · 」），取 ymd < 上月月底的最后一天
+    const historical = db
+      .prepare(
+        `SELECT id, amount, ymd, note FROM wallet_txns
+         WHERE wallet_id=? AND book_id=? AND note LIKE '%月结·%' AND ymd < ?
+         ORDER BY ymd DESC, id DESC`
+      )
+      .all(w.id, req.bookId, lastMonthDay);
+    // 当月/上月：实时聚合（按月 × 分类 × 归属人）
+    const liveMap = new Map();
     for (const l of linkLinks) {
       if (!l.cat || !l.from) continue;
       const mrows = db
@@ -292,23 +304,30 @@ r.get(
                   CASE WHEN attribution='' OR attribution IS NULL THEN '未标注' ELSE attribution END AS attribution,
                   SUM(amount) AS sum
            FROM flows
-           WHERE book_id=? AND category=? AND type='expense' AND substr(flow_time,1,10) >= ?
+           WHERE book_id=? AND category=? AND type='expense'
+             AND substr(flow_time,1,10) >= ? AND substr(flow_time,1,7) >= ?
            GROUP BY ym, category, attribution`
         )
-        .all(req.bookId, l.cat, l.from);
+        .all(req.bookId, l.cat, l.from, lastMonth);
       for (const m of mrows) {
         const key = `${m.ym}|${m.category}|${m.attribution}`;
-        if (!monthlyMap.has(key)) {
+        if (!liveMap.has(key)) {
           const lastDay = dayjs(m.ym + "-01").endOf("month").format("YYYY-MM-DD");
-          monthlyMap.set(key, { ym: m.ym, ymd: lastDay, category: m.category, attribution: m.attribution, sum: 0 });
+          liveMap.set(key, { ym: m.ym, ymd: lastDay, category: m.category, attribution: m.attribution, sum: 0, live: true });
         }
-        monthlyMap.get(key).sum += Number(m.sum || 0);
+        liveMap.get(key).sum += Number(m.sum || 0);
       }
     }
-    const monthly = [...monthlyMap.values()]
-      .map((m) => ({ ...m, amount: -m.sum }))
-      .filter((m) => m.sum > 0)
-      .sort((a, b) => (a.ym < b.ym ? 1 : a.ym > b.ym ? -1 : a.category.localeCompare(b.category, "zh") || a.attribution.localeCompare(b.attribution, "zh")));
+    const liveRows = [...liveMap.values()].filter((m) => m.sum > 0).map((m) => ({ ...m, amount: -m.sum }));
+    // 合并：历史月（来自 wallet_txns，note 含 ym+cat+owner）+ 当月/上月（实时聚合）
+    const monthly = [];
+    for (const h of historical) {
+      const m = /^(\d{4}-\d{2}) 月结 · (.+?) · (.+)$/.exec(h.note || "");
+      if (!m) continue;
+      monthly.push({ ym: m[1], ymd: h.ymd, category: m[2], attribution: m[3], amount: -Math.abs(Number(h.amount)) });
+    }
+    for (const l of liveRows) monthly.push(l);
+    monthly.sort((a, b) => (a.ym < b.ym ? 1 : a.ym > b.ym ? -1 : a.category.localeCompare(b.category, "zh") || a.attribution.localeCompare(b.attribution, "zh")));
     res.json({
       wallet: w,
       rows,
@@ -458,3 +477,51 @@ r.post(
 );
 
 export default r;
+
+// 月结触发器：某条流水变动后，对 (ym, cat, attribution) 重新聚合，写入 wallet_txns
+// 仅历史月（< 上月）落库；当前月/上月不落库，由 GET 实时聚合
+// note 格式：`${ym} 月结 · ${cat} · ${owner}`（含归属人用于去重 upsert）
+export function reconcileMonthClose(bookId, flow) {
+  if (!flow || !flow.flow_time || !flow.category) return;
+  if (flow.type && flow.type !== "expense") return; // 只关心支出
+  const ym = String(flow.flow_time).slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(ym)) return;
+  const lastMonth = dayjs().subtract(1, "month").format("YYYY-MM");
+  if (ym >= lastMonth) return; // 当月/上月不入库，实时算
+  // 找 link_category / link_links 包含此 cat 的钱包
+  const wallets = db
+    .prepare("SELECT * FROM wallets WHERE book_id=? AND (link_category LIKE ? OR link_links LIKE ?)")
+    .all(bookId, `%"${flow.category}"%`, `%"${flow.category}"%`);
+  const lastDay = dayjs(ym + "-01").endOf("month").format("YYYY-MM-DD");
+  const owner = flow.attribution || "未标注";
+  const reconcileOne = (w) => {
+    const links = parseLinkLinks(w);
+    const link = links.find((l) => l.cat === flow.category && l.from <= String(flow.flow_time).slice(0, 10));
+    if (!link) return;
+    const note = `${ym} 月结 · ${flow.category} · ${owner}`;
+    const sumRow = db
+      .prepare(
+        `SELECT COALESCE(SUM(amount),0) AS s FROM flows
+         WHERE book_id=? AND category=? AND type='expense'
+         AND substr(flow_time,1,7)=?
+         AND (CASE WHEN attribution='' OR attribution IS NULL THEN '未标注' ELSE attribution END) = ?`
+      )
+      .get(bookId, flow.category, ym, owner);
+    const sum = Number(sumRow?.s || 0);
+    if (sum <= 0) {
+      db.prepare("DELETE FROM wallet_txns WHERE wallet_id=? AND book_id=? AND note=?").run(w.id, bookId, note);
+      return;
+    }
+    const ex = db.prepare("SELECT id FROM wallet_txns WHERE wallet_id=? AND book_id=? AND note=?").get(w.id, bookId, note);
+    if (ex) {
+      db.prepare("UPDATE wallet_txns SET amount=?, ymd=? WHERE id=?").run(-sum, lastDay, ex.id);
+    } else {
+      db.prepare(
+        `INSERT INTO wallet_txns (book_id,wallet_id,amount,ymd,note,user_id,op_user)
+         VALUES (?,?,?,?,?,?,?)`
+      ).run(bookId, w.id, -sum, lastDay, note, flow.user_id || 0, owner);
+    }
+  };
+  const tx = db.transaction(() => { for (const w of wallets) reconcileOne(w); });
+  tx();
+}

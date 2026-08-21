@@ -2,6 +2,7 @@ import { Router } from "express";
 import dayjs from "dayjs";
 import { db } from "../db.js";
 import { auth, requireBook, wrap } from "../mw.js";
+import { reconcileMonthClose } from "./wallets.js";
 
 const r = Router();
 r.use(auth);
@@ -327,6 +328,12 @@ r.post(
         source,
         client_uuid: uuid || null,
       });
+    // 触发钱包月结触发器（仅历史月落库；当前月/上月实时算）
+    try {
+      reconcileMonthClose(req.bookId, {
+        flow_time, category, attribution: attr.text, attribution_uid: attr.uid, type, user_id: req.user.id,
+      });
+    } catch (_) {}
     res.json({ id: info.lastInsertRowid });
   })
 );
@@ -449,6 +456,27 @@ r.put(
       attrUid,
       cur.id
     );
+    // 触发月结触发器：可能影响两条（修改前 + 修改后）
+    try {
+      reconcileMonthClose(req.bookId, {
+        flow_time: stampSaveTime(b.flow_time, cur.flow_time),
+        category: effectiveCat,
+        attribution: attrText,
+        attribution_uid: attrUid,
+        type: b.type === "income" ? "income" : "expense",
+        user_id: cur.user_id,
+      });
+      if (cur.category !== effectiveCat || (cur.flow_time || '').slice(0,7) !== (stampSaveTime(b.flow_time, cur.flow_time) || '').slice(0,7)) {
+        reconcileMonthClose(req.bookId, {
+          flow_time: cur.flow_time,
+          category: cur.category,
+          attribution: cur.attribution,
+          attribution_uid: cur.attribution_uid,
+          type: cur.type,
+          user_id: cur.user_id,
+        });
+      }
+    } catch (_) {}
     res.json({ ok: true });
   })
 );
@@ -457,10 +485,14 @@ r.delete(
   "/:id",
   requireBook,
   wrap((req, res) => {
+    // 先读原值供触发器用，再删除
+    const cur = db.prepare("SELECT * FROM flows WHERE id=? AND book_id=?").get(req.params.id, req.bookId);
     db.prepare("DELETE FROM flows WHERE id=? AND book_id=?").run(
       req.params.id,
       req.bookId
     );
+    // 触发月结触发器（删除后该 (ym, cat, owner) 的月结可能需要清零）
+    try { if (cur) reconcileMonthClose(req.bookId, cur); } catch (_) {}
     res.json({ ok: true });
   })
 );
