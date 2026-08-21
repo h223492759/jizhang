@@ -171,10 +171,16 @@ r.post(
         .map((x) => ({ cat: String(x?.cat || "").trim(), from: normLinkDate(x?.from || "") }))
         .filter((x) => x.cat)
     );
-    // 定期存入规则：JSON 数组 [{cat, owner?, amount}]
+    // 定期存入规则：JSON 数组 [{cat, owner?, amount, start_ym?, end_ym?}]
     const depositRules = JSON.stringify(
       (Array.isArray(req.body?.deposit_rules) ? req.body.deposit_rules : [])
-        .map((x) => ({ cat: String(x?.cat || "").trim(), owner: String(x?.owner || "").trim(), amount: Number(x?.amount || 0) }))
+        .map((x) => ({
+          cat: String(x?.cat || "").trim(),
+          owner: String(x?.owner || "").trim(),
+          amount: Number(x?.amount || 0),
+          start_ym: String(x?.start_ym || "").trim(),
+          end_ym: String(x?.end_ym || "").trim(),
+        }))
         .filter((x) => x.cat && x.amount > 0)
     );
     const max = db
@@ -220,7 +226,13 @@ r.put(
       req.body?.deposit_rules != null
         ? JSON.stringify(
             (Array.isArray(req.body.deposit_rules) ? req.body.deposit_rules : [])
-              .map((x) => ({ cat: String(x?.cat || "").trim(), owner: String(x?.owner || "").trim(), amount: Number(x?.amount || 0) }))
+              .map((x) => ({
+                cat: String(x?.cat || "").trim(),
+                owner: String(x?.owner || "").trim(),
+                amount: Number(x?.amount || 0),
+                start_ym: String(x?.start_ym || "").trim(),
+                end_ym: String(x?.end_ym || "").trim(),
+              }))
               .filter((x) => x.cat && x.amount > 0)
           )
         : cur.deposit_rules;
@@ -615,6 +627,8 @@ export function tryDeposit(bookId, flow) {
     for (const r of rules) {
       if (String(r?.cat || "").trim() !== flow.category) continue;
       if (r?.owner && String(r.owner).trim() !== (flow.attribution || "")) continue;
+      if (r?.start_ym && ym < String(r.start_ym).trim()) continue;
+      if (r?.end_ym && ym > String(r.end_ym).trim()) continue;
       const amount = Number(r?.amount || 0);
       if (amount > 0) matched.push({ wallet: w, amount });
     }

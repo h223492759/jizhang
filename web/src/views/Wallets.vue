@@ -100,7 +100,7 @@ function openEditWallet(w) {
     note: w.note || "",
     link_links: links,
     deposit_rules: Array.isArray(w.deposit_rules) && w.deposit_rules.length
-      ? w.deposit_rules.map((x) => ({ cat: x.cat || "", owner: x.owner || "", amount: String(x.amount ?? "") }))
+      ? w.deposit_rules.map((x) => ({ cat: x.cat || "", owner: x.owner || "", amount: String(x.amount ?? ""), start_ym: x.start_ym || "", end_ym: x.end_ym || "" }))
       : [],
   };
   if (!walletForm.value.deposit_rules.length) walletForm.value.deposit_rules.push({ cat: "", owner: "", amount: "" });
@@ -133,7 +133,13 @@ async function saveWallet() {
   // 定期存入规则（清空无效行）
   const depositRules = walletForm.value.deposit_rules
     .filter((r) => r.cat && r.cat.trim() && isFinite(evalExpr(r.amount)) && evalExpr(r.amount) > 0)
-    .map((r) => ({ cat: r.cat.trim(), owner: (r.owner || "").trim(), amount: evalExpr(r.amount) }));
+    .map((r) => ({
+      cat: r.cat.trim(),
+      owner: (r.owner || "").trim(),
+      amount: evalExpr(r.amount),
+      start_ym: (r.start_ym || "").trim(),
+      end_ym: (r.end_ym || "").trim(),
+    }));
   const payload = {
     name: walletForm.value.name.trim(),
     icon: walletForm.value.icon.trim() || "👛",
@@ -382,15 +388,18 @@ async function saveTxnEdit() {
         <div class="field">
           <span>定期存入（可选，工资自动分配）：每月第一笔该分类收入流水且金额 ≥ 各规则总额时，自动给本钱包存入固定金额（写进资金记录，不实时算不卡）</span>
           <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
-            <div v-for="(dr, di) in walletForm.deposit_rules" :key="di" style="display:flex;gap:6px;align-items:center">
-              <select class="input" v-model="dr.cat" style="width:auto;min-width:140px">
+            <div v-for="(dr, di) in walletForm.deposit_rules" :key="di" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+              <select class="input" v-model="dr.cat" style="width:auto;min-width:130px">
                 <option value="">选择收入分类</option>
                 <option v-for="c in categoryOptions.filter(o=>o.type==='income')" :key="c.id" :value="c.name">
                   {{ c.name }}
                 </option>
               </select>
-              <input class="input" v-model="dr.owner" placeholder="归属人(可选)" style="width:110px" />
-              <input class="input" v-model="dr.amount" placeholder="金额" style="width:90px" />
+              <input class="input" v-model="dr.owner" placeholder="归属人(可选)" style="width:100px" />
+              <input class="input" v-model="dr.amount" placeholder="金额" style="width:80px" />
+              <input class="input" v-model="dr.start_ym" placeholder="开始 YYYY-MM" style="width:120px" />
+              <span class="muted small">~</span>
+              <input class="input" v-model="dr.end_ym" placeholder="结束 YYYY-MM" style="width:120px" />
               <button type="button" class="btn" style="padding:2px 10px" @click="removeDepositRule(di)" title="删除该行">×</button>
             </div>
             <button type="button" class="btn" style="align-self:flex-start;padding:2px 12px" @click="addDepositRule">+ 添加规则</button>
@@ -449,6 +458,30 @@ async function saveTxnEdit() {
             <button class="btn btn-primary add-btn" @click="saveTxnEdit">保存修改</button>
             <button class="btn add-btn" @click="cancelEditTxn">取消</button>
           </template>
+        </div>
+
+        <!-- 定存细则展示 -->
+        <div v-if="(detail.wallet.deposit_rules || []).length" class="section-title" style="margin:18px 0 10px">
+          定存细则 · 每月第一笔匹配收入流水且金额 ≥ 各规则总额时自动存入
+        </div>
+        <div v-if="(detail.wallet.deposit_rules || []).length" style="border:1px solid var(--border); border-radius:8px; padding:10px; background:var(--surface-2); margin-bottom:8px">
+          <table style="width:100%; font-size:13px">
+            <thead><tr style="text-align:left; color:var(--muted)">
+              <th style="padding:4px">来源分类</th>
+              <th style="padding:4px">归属人</th>
+              <th style="padding:4px">金额</th>
+              <th style="padding:4px">时间</th>
+            </tr></thead>
+            <tbody>
+              <tr v-for="(r, i) in detail.wallet.deposit_rules" :key="i">
+                <td style="padding:4px">{{ r.cat }}</td>
+                <td style="padding:4px">{{ r.owner || '任意' }}</td>
+                <td style="padding:4px">+{{ fmt(Number(r.amount || 0)) }}</td>
+                <td style="padding:4px; color:var(--muted)">{{ r.start_ym || '不限' }} ~ {{ r.end_ym || '不限' }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div style="margin-top:6px; font-size:12px; color:var(--muted)">修改规则：点「修改钱包信息」编辑 → 定存细则</div>
         </div>
 
         <!-- 资金记录 -->

@@ -164,8 +164,8 @@ function logout() {
   border-right: 1px solid var(--border); padding: 18px 12px;
   display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh;
 }
-.side-brand { font-size: 18px; font-weight: 800; padding: 6px 10px 18px; display: flex; align-items: center; gap: 8px; }
-.brand-logo { width: 26px; height: 26px; border-radius: 6px; }
+.side-brand { font-size: 15px; font-weight: 700; padding: 6px 10px 14px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.brand-logo { width: 22px; height: 22px; border-radius: 5px; }
 /* 版本号小字（记账本右侧） */
 .side-ver { font-size: 11px; font-weight: 500; color: var(--text-2, #94a3b8); letter-spacing: 0.2px; margin-left: 2px; }
 .nav-item {
