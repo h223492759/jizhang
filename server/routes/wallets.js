@@ -279,7 +279,7 @@ r.put(
       depositRules,
       cur.id
     );
-    res.json({ ok: true });
+    res.json({ ok: true, savedDepositRules: JSON.parse(depositRules || "[]") });
   })
 );
 

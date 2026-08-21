@@ -162,9 +162,11 @@ async function saveWallet() {
   };
   try {
     let wid;
+    let savedCount = 0;
     if (editingWallet.value) {
-      await api.put(`/wallets/${editingWallet.value.id}`, payload);
+      const { data: pr } = await api.put(`/wallets/${editingWallet.value.id}`, payload);
       wid = editingWallet.value.id;
+      savedCount = Array.isArray(pr?.savedDepositRules) ? pr.savedDepositRules.length : 0;
     } else {
       const { data: rd } = await api.post("/wallets", payload);
       wid = rd.id;
@@ -179,7 +181,7 @@ async function saveWallet() {
         note: editingWallet.value ? "追加已存" : "初始已存",
       });
     }
-    toast(editingWallet.value ? `已保存（定存细则 ${depositRules.length} 条）` : "已新增钱包");
+    toast(editingWallet.value ? `已保存（server 实际写入定存细则 ${savedCount} 条）` : "已新增钱包");
     showWallet.value = false;
     load();
     // 若正在看详情且就是该钱包，刷新详情让定存细则/诊断立即可见
