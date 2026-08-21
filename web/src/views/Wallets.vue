@@ -231,6 +231,24 @@ async function saveTxnEdit() {
     load();
   } catch (e) { toast(e.message); }
 }
+
+// 月底结转：把当前月（默认）的关联分类支出按归属人聚合写入 wallet_txns
+const closingMonth = ref(false);
+async function closeMonth() {
+  if (!detail.value?.wallet) return;
+  const ym = dayjs().format("YYYY-MM");
+  const lastDay = dayjs(ym + "-01").endOf("month").format("YYYY-MM-DD");
+  if (!confirm(`将「${ym}」关联分类的支出按归属人聚合，写入 ${lastDay} 的资金记录。\n（已结转过的归属人会被跳过，不会重复）`)) return;
+  closingMonth.value = true;
+  try {
+    const { data } = await api.post(`/wallets/${detail.value.wallet.id}/close-month`, { ym });
+    if (data?.inserted) toast(`已结转 ${data.inserted} 条记录`);
+    else toast("本月无新增结转（可能已结转过或没支出）");
+    openDetail(detail.value.wallet);
+    load();
+  } catch (e) { toast(e.message); }
+  finally { closingMonth.value = false; }
+}
 </script>
 
 <template>
@@ -434,8 +452,11 @@ async function saveTxnEdit() {
         </table>
 
         <!-- 关联分类自动记录 -->
-        <div class="section-title" style="margin:18px 0 10px" v-if="detail.linkCategory">
-          关联分类自动记录 · {{ detail.linkCategory }}（自 {{ detail.linkFrom }}）
+        <div class="section-title" style="margin:18px 0 10px; display:flex; align-items:center; gap:10px" v-if="detail.linkCategory">
+          <span>关联分类自动记录 · {{ detail.linkCategory }}（自 {{ detail.linkFrom }}）</span>
+          <button class="btn btn-sm btn-primary" style="margin-left:auto" :disabled="closingMonth" @click="closeMonth">
+            {{ closingMonth ? "结转中…" : "生成月底结转" }}
+          </button>
         </div>
         <table class="tbl txn-tbl" v-if="detail.linkCategory">
           <thead>

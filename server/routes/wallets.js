@@ -1,4 +1,5 @@
 import { Router } from "express";
+import dayjs from "dayjs";
 import { db } from "../db.js";
 import { auth, requireBook, wrap } from "../mw.js";
 
@@ -359,6 +360,71 @@ r.delete(
       req.bookId
     );
     res.json({ ok: true });
+  })
+);
+
+// 月底结转：把指定年月的关联分类支出按归属人聚合，写入 wallet_txns（支出，金额为负）
+// 每个月每个归属人最多一条结转记录（去重：同 ymd+note 已存在则跳过）
+r.post(
+  "/:id/close-month",
+  requireBook,
+  wrap((req, res) => {
+    const w = db
+      .prepare("SELECT * FROM wallets WHERE id=? AND book_id=?")
+      .get(req.params.id, req.bookId);
+    if (!w) return res.status(404).json({ error: "钱包不存在" });
+    const linkLinks = parseLinkLinks(w);
+    if (!linkLinks.length) return res.status(400).json({ error: "该钱包未关联分类" });
+    const ym = (req.body?.ym || "").trim() || dayjs().format("YYYY-MM");
+    if (!/^\d{4}-\d{2}$/.test(ym)) return res.status(400).json({ error: "ym 格式 YYYY-MM" });
+    const lastDay = dayjs(ym + "-01").endOf("month").format("YYYY-MM-DD");
+    const stmt = db.prepare(
+      `INSERT INTO wallet_txns (book_id,wallet_id,amount,ymd,note,user_id,op_user)
+       VALUES (?,?,?,?,?,?,?)`
+    );
+    const existedStmt = db.prepare(
+      "SELECT id FROM wallet_txns WHERE wallet_id=? AND book_id=? AND ymd=? AND note=?"
+    );
+    const tx = db.transaction(() => {
+      let inserted = 0;
+      const sumByOwner = new Map();
+      for (const l of linkLinks) {
+        if (!l.cat || !l.from) continue;
+        const start = l.from <= ym + "-01" ? ym + "-01" : l.from;
+        if (start > lastDay) continue;
+        const rows = db
+          .prepare(
+            `SELECT amount, attribution, attribution_uid
+             FROM flows WHERE book_id=? AND category=? AND type='expense'
+             AND substr(flow_time,1,10) >= ? AND substr(flow_time,1,10) <= ?`
+          )
+          .all(req.bookId, l.cat, start, lastDay);
+        for (const r of rows) {
+          const key = `${r.attribution || "未标注"}|${r.attribution_uid || 0}`;
+          if (!sumByOwner.has(key)) {
+            sumByOwner.set(key, {
+              attribution: r.attribution || "未标注",
+              attribution_uid: r.attribution_uid || 0,
+              sum: 0,
+            });
+          }
+          sumByOwner.get(key).sum += Number(r.amount);
+        }
+      }
+      const results = [];
+      for (const v of sumByOwner.values()) {
+        if (v.sum <= 0) continue;
+        const note = `${ym} 月结 · ${v.attribution}`;
+        const ex = existedStmt.get(w.id, req.bookId, lastDay, note);
+        if (ex) { results.push({ attribution: v.attribution, sum: -v.sum, dup: true }); continue; }
+        stmt.run(req.bookId, w.id, -v.sum, lastDay, note, v.attribution_uid || 0, v.attribution);
+        results.push({ attribution: v.attribution, sum: -v.sum });
+        inserted++;
+      }
+      return { inserted, results };
+    });
+    const out = tx();
+    res.json({ ok: true, ym, ymd: lastDay, ...out });
   })
 );
 
