@@ -547,10 +547,7 @@ export function reconcileMonthClose(bookId, flow) {
 // 解决历史月结缺失的根本问题：触发器只在新增/修改/删除单条流水时被调用，
 // 过去已存在的历史月数据可能从未被触发过（尤其是迁移初期或老数据），
 // 所以每次 GET 时跑一次兜底重建。
-const _rebuiltToday = new Map(); // bookId -> 'YYYY-MM-DD'
 export function rebuildMonthlyClose(bookId) {
-  const today = dayjs().format('YYYY-MM-DD');
-  if (_rebuiltToday.get(bookId) === today) return { rebuilt: 0, cached: true };
   const wallets = db.prepare(
     "SELECT * FROM wallets WHERE book_id=? AND (link_category IS NOT NULL AND link_category != '' AND link_category != '[]')"
   ).all(bookId);
