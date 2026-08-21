@@ -261,6 +261,7 @@ r.get(
       .prepare(
         `SELECT id, amount, ymd, note, user_id, ${OP_EXPR} AS op_user, created_at
          FROM wallet_txns WHERE book_id=? AND wallet_id=?
+           AND (note IS NULL OR note = '' OR note NOT LIKE '%月结%')
          ORDER BY ymd DESC, id DESC`
       )
       .all(req.bookId, w.id);
