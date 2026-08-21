@@ -281,12 +281,41 @@ r.get(
       linkedRows.push({ link: l, rows });
       linkedSum += rows.reduce((s, x) => s + (x.type === "income" ? Number(x.amount) : -Number(x.amount)), 0);
     }
+    // 月结（自动、实时）：按月 × 分类 × 归属人 聚合关联分类的支出，
+    // 日期 = 该月最后一天，金额 = 当月该分类该归属人的支出总额（流水变动自动反映）
+    const monthlyMap = new Map();
+    for (const l of linkLinks) {
+      if (!l.cat || !l.from) continue;
+      const mrows = db
+        .prepare(
+          `SELECT substr(flow_time,1,7) AS ym, category,
+                  CASE WHEN attribution='' OR attribution IS NULL THEN '未标注' ELSE attribution END AS attribution,
+                  SUM(amount) AS sum
+           FROM flows
+           WHERE book_id=? AND category=? AND type='expense' AND substr(flow_time,1,10) >= ?
+           GROUP BY ym, category, attribution`
+        )
+        .all(req.bookId, l.cat, l.from);
+      for (const m of mrows) {
+        const key = `${m.ym}|${m.category}|${m.attribution}`;
+        if (!monthlyMap.has(key)) {
+          const lastDay = dayjs(m.ym + "-01").endOf("month").format("YYYY-MM-DD");
+          monthlyMap.set(key, { ym: m.ym, ymd: lastDay, category: m.category, attribution: m.attribution, sum: 0 });
+        }
+        monthlyMap.get(key).sum += Number(m.sum || 0);
+      }
+    }
+    const monthly = [...monthlyMap.values()]
+      .map((m) => ({ ...m, amount: -m.sum }))
+      .filter((m) => m.sum > 0)
+      .sort((a, b) => (a.ym < b.ym ? 1 : a.ym > b.ym ? -1 : a.category.localeCompare(b.category, "zh") || a.attribution.localeCompare(b.attribution, "zh")));
     res.json({
       wallet: w,
       rows,
       balance,
       linkedRows,
       linkedSum,
+      monthly,
       linkFrom: w.link_from || "",
       linkCategory: w.link_category || "",
     });

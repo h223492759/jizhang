@@ -231,24 +231,6 @@ async function saveTxnEdit() {
     load();
   } catch (e) { toast(e.message); }
 }
-
-// 月底结转：把当前月（默认）的关联分类支出按归属人聚合写入 wallet_txns
-const closingMonth = ref(false);
-async function closeMonth() {
-  if (!detail.value?.wallet) return;
-  const ym = dayjs().format("YYYY-MM");
-  const lastDay = dayjs(ym + "-01").endOf("month").format("YYYY-MM-DD");
-  if (!confirm(`将「${ym}」关联分类的支出按归属人聚合，写入 ${lastDay} 的资金记录。\n（已结转过的归属人会被跳过，不会重复）`)) return;
-  closingMonth.value = true;
-  try {
-    const { data } = await api.post(`/wallets/${detail.value.wallet.id}/close-month`, { ym });
-    if (data?.inserted) toast(`已结转 ${data.inserted} 条记录`);
-    else toast("本月无新增结转（可能已结转过或没支出）");
-    openDetail(detail.value.wallet);
-    load();
-  } catch (e) { toast(e.message); }
-  finally { closingMonth.value = false; }
-}
 </script>
 
 <template>
@@ -451,12 +433,10 @@ async function closeMonth() {
           </tbody>
         </table>
 
-        <!-- 关联分类自动记录 -->
-        <div class="section-title" style="margin:18px 0 10px; display:flex; align-items:center; gap:10px" v-if="detail.linkCategory">
-          <span>关联分类自动记录 · {{ detail.linkCategory }}（自 {{ detail.linkFrom }}）</span>
-          <button class="btn btn-sm btn-primary" style="margin-left:auto" :disabled="closingMonth" @click="closeMonth">
-            {{ closingMonth ? "结转中…" : "生成月底结转" }}
-          </button>
+        <!-- 关联分类自动记录（每月底自动按分类×归属人汇总，流水变动实时更新） -->
+        <div class="section-title" style="margin:18px 0 10px" v-if="detail.linkCategory">
+          <span>关联分类月结 · {{ detail.linkCategory }}（自 {{ detail.linkFrom }}）</span>
+          <span class="muted" style="font-size:12px; font-weight:normal">每月底自动汇总各分类、各归属人的支出，流水变动实时更新</span>
         </div>
         <table class="tbl txn-tbl" v-if="detail.linkCategory">
           <thead>
@@ -464,20 +444,18 @@ async function closeMonth() {
               <th class="c-d">日期</th>
               <th class="num">金额</th>
               <th>说明</th>
-              <th class="c-op hide-mobile">操作人</th>
+              <th class="c-op hide-mobile">归属人</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="f in detail.linkedRows" :key="'l' + f.id">
-              <td class="c-d"><b>{{ (f.flow_time || '').slice(0, 10) }}</b></td>
-              <td class="num" :class="f.type === 'income' ? 'income' : 'expense'">
-                <b>{{ f.type === 'income' ? '+' : '−' }}{{ fmt(f.amount) }}</b>
-              </td>
-              <td class="muted">{{ f.description || '—' }}</td>
-              <td class="c-op muted hide-mobile">{{ f.attribution || '—' }}</td>
+            <tr v-for="m in detail.monthly || []" :key="m.ym + m.category + m.attribution">
+              <td class="c-d"><b>{{ m.ymd }}</b></td>
+              <td class="num expense"><b>−{{ fmt(Math.abs(m.amount)) }}</b></td>
+              <td class="muted">{{ m.ym }} 月结 · {{ m.category }}</td>
+              <td class="c-op muted hide-mobile">{{ m.attribution }}</td>
             </tr>
-            <tr v-if="!detail.linkedRows.length">
-              <td colspan="4" class="muted" style="text-align:center;padding:20px 0">该分类自 {{ detail.linkFrom }} 起暂无流水</td>
+            <tr v-if="!(detail.monthly || []).length">
+              <td colspan="4" class="muted" style="text-align:center;padding:20px 0">该分类自 {{ detail.linkFrom }} 起暂无支出</td>
             </tr>
           </tbody>
         </table>
