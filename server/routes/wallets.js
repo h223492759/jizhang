@@ -652,8 +652,11 @@ export function tryDeposit(bookId, flow) {
     for (const r of rules) {
       if (String(r?.cat || "").trim() !== flow.category) continue;
       if (r?.owner && String(r.owner).trim() !== (flow.attribution || "")) continue;
-      if (r?.start_ym && ym < String(r.start_ym).trim()) continue;
-      if (r?.end_ym && ym > String(r.end_ym).trim()) continue;
+      // start_ym/end_ym 兼容 YYYY-MM 和 YYYY-MM-DD 输入：取前 7 位比较（ym 是 YYYY-MM）
+      const sYm = String(r?.start_ym || "").trim().slice(0, 7);
+      const eYm = String(r?.end_ym || "").trim().slice(0, 7);
+      if (sYm && ym < sYm) continue;
+      if (eYm && ym > eYm) continue;
       const amount = Number(r?.amount || 0);
       if (amount > 0) matched.push({ wallet: w, amount });
     }
