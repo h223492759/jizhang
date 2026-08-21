@@ -169,9 +169,11 @@ async function saveWallet() {
         note: editingWallet.value ? "追加已存" : "初始已存",
       });
     }
-    toast(editingWallet.value ? "已修改" : "已新增钱包");
+    toast(editingWallet.value ? `已保存（定存细则 ${depositRules.length} 条）` : "已新增钱包");
     showWallet.value = false;
     load();
+    // 若正在看详情且就是该钱包，刷新详情让定存细则/诊断立即可见
+    if (showDetail.value && detail.value.wallet && detail.value.wallet.id === wid) openDetail(detail.value.wallet);
   } catch (e) { toast(e.message); }
 }
 async function delWallet(w) {
@@ -461,39 +463,47 @@ async function saveTxnEdit() {
         </div>
 
         <!-- 定存细则展示 -->
-        <div v-if="(detail.wallet.deposit_rules || []).length" class="section-title" style="margin:18px 0 10px">
+        <div class="section-title" style="margin:18px 0 10px">
           定存细则 · 每月第一笔匹配收入流水且金额 ≥ 各规则总额时自动存入
         </div>
-        <div v-if="(detail.wallet.deposit_rules || []).length" style="border:1px solid var(--border); border-radius:8px; padding:10px; background:var(--surface-2); margin-bottom:8px">
-          <table style="width:100%; font-size:13px">
-            <thead><tr style="text-align:left; color:var(--muted)">
-              <th style="padding:4px">来源分类</th>
-              <th style="padding:4px">归属人</th>
-              <th style="padding:4px">金额</th>
-              <th style="padding:4px">时间</th>
-            </tr></thead>
-            <tbody>
-              <tr v-for="(r, i) in detail.wallet.deposit_rules" :key="i">
-                <td style="padding:4px">{{ r.cat }}</td>
-                <td style="padding:4px">{{ r.owner || '任意' }}</td>
-                <td style="padding:4px">+{{ fmt(Number(r.amount || 0)) }}</td>
-                <td style="padding:4px; color:var(--muted)">{{ r.start_ym || '不限' }} ~ {{ r.end_ym || '不限' }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <div style="margin-top:6px; font-size:12px; color:var(--muted)">修改规则：点「修改钱包信息」编辑 → 定存细则</div>
+        <div style="border:1px solid var(--border); border-radius:8px; padding:10px; background:var(--surface-2); margin-bottom:8px">
+          <template v-if="(detail.wallet.deposit_rules || []).length">
+            <table style="width:100%; font-size:13px">
+              <thead><tr style="text-align:left; color:var(--muted)">
+                <th style="padding:4px">来源分类</th>
+                <th style="padding:4px">归属人</th>
+                <th style="padding:4px">金额</th>
+                <th style="padding:4px">时间</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="(r, i) in detail.wallet.deposit_rules" :key="i">
+                  <td style="padding:4px">{{ r.cat }}</td>
+                  <td style="padding:4px">{{ r.owner || '任意' }}</td>
+                  <td style="padding:4px">+{{ fmt(Number(r.amount || 0)) }}</td>
+                  <td style="padding:4px; color:var(--muted)">{{ r.start_ym || '不限' }} ~ {{ r.end_ym || '不限' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </template>
+          <div v-else class="muted" style="font-size:13px; padding:4px 0">
+            暂无定存细则。点「修改钱包信息」→ 定存细则 Tab → 添加规则并保存。
+          </div>
+          <div style="margin-top:6px; font-size:12px; color:var(--muted)">修改规则：点「修改钱包信息」编辑 → 定存细则 → 保存（保存后提示"已保存（定存细则 N 条）"）</div>
         </div>
 
-        <!-- 定存细则匹配诊断（仅开发排障用：显示每条匹配流水的分配状态） -->
-        <div v-if="(detail.depositDebug || []).length" style="border:1px dashed var(--border); border-radius:8px; padding:10px; background:var(--surface-2); margin-bottom:8px; font-size:12px">
+        <!-- 定存细则匹配诊断（显示每条匹配流水的分配状态） -->
+        <div v-if="(detail.deposit_rules || []).length || (detail.depositDebug || []).length" style="border:1px dashed var(--border); border-radius:8px; padding:10px; background:var(--surface-2); margin-bottom:8px; font-size:12px">
           <div style="font-weight:600; margin-bottom:6px">定存匹配诊断</div>
-          <div v-for="(d, di) in detail.depositDebug" :key="di" style="display:flex; gap:8px; padding:2px 0">
-            <span class="muted" style="white-space:nowrap">{{ d.ym }}</span>
-            <span>{{ d.category }} · {{ d.attribution }} · {{ fmt(d.amount) }}</span>
-            <span :style="{ color: d.status === 'ok' ? 'var(--income, #16a34a)' : 'var(--expense, #dc2626)' }">
-              {{ d.status === 'ok' ? '✓ 已分配' : d.reason }}
-            </span>
-          </div>
+          <template v-if="(detail.depositDebug || []).length">
+            <div v-for="(d, di) in detail.depositDebug" :key="di" style="display:flex; gap:8px; padding:2px 0">
+              <span class="muted" style="white-space:nowrap">{{ d.ym }}</span>
+              <span>{{ d.category }} · {{ d.attribution }} · {{ fmt(d.amount) }}</span>
+              <span :style="{ color: d.status === 'ok' ? 'var(--income, #16a34a)' : 'var(--expense, #dc2626)' }">
+                {{ d.status === 'ok' ? '✓ 已分配' : d.reason }}
+              </span>
+            </div>
+          </template>
+          <div v-else class="muted">暂无匹配流水（配好规则并保存后，这里会显示每条收入的匹配状态）</div>
         </div>
 
         <!-- 资金记录 -->
