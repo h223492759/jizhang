@@ -310,21 +310,44 @@ r.get(
       .get(req.params.id, req.bookId);
     if (!w) return res.status(404).json({ error: "钱包不存在" });
     w.deposit_rules = parseDepositRules(w);
-    // 定存细则兜底补触发：打开详情页时对匹配的 income 流水补触发一次（幂等防重，
-    // 即使 POST /flows 触发异常漏分配，这里也会补上，保证规则一定生效）
+    // 定存细则兜底补触发 + 诊断：打开详情页时对匹配的 income 流水补触发一次（幂等防重，
+    // 即使 POST /flows 触发异常漏分配，这里也会补上），并生成诊断信息供前端展示
+    const depositDebug = [];
     if (w.deposit_rules.length) {
       try {
         for (const r of w.deposit_rules) {
           const sYm = String(r.start_ym || "").slice(0, 7) || dayjs().subtract(6, "month").format("YYYY-MM");
+          const eYm = String(r.end_ym || "").slice(0, 7);
           const flows = db
             .prepare(
               `SELECT * FROM flows WHERE book_id=? AND category=? AND type='income'
                AND substr(flow_time,1,7)>=? ORDER BY flow_time ASC`
             )
             .all(req.bookId, r.cat, sYm);
-          for (const f of flows) tryDeposit(req.bookId, f);
+          for (const f of flows) {
+            const fYm = String(f.flow_time).slice(0, 7);
+            const fOwner = String(f.attribution || "未标注").trim() || "未标注";
+            const already = db
+              .prepare("SELECT id FROM wallet_txns WHERE book_id=? AND note=?")
+              .get(req.bookId, `工资分配·${f.category}·${fOwner}·${fYm}`);
+            if (already) {
+              depositDebug.push({ ym: fYm, category: f.category, attribution: fOwner, amount: f.amount, status: "ok", reason: "已分配" });
+              continue;
+            }
+            // 诊断原因判断
+            let reason = "";
+            if (r.owner && String(r.owner).trim() !== fOwner) reason = `归属人不匹配（规则=${r.owner}，流水=${fOwner}）`;
+            else if (sYm && fYm < sYm) reason = `早于开始月 ${sYm}`;
+            else if (eYm && fYm > eYm) reason = `晚于结束月 ${eYm}`;
+            else if (Number(f.amount) < Number(r.amount || 0)) reason = `金额不足（${f.amount} < ${r.amount}）`;
+            else reason = "未匹配（未知）";
+            depositDebug.push({ ym: fYm, category: f.category, attribution: fOwner, amount: f.amount, status: "miss", reason });
+            tryDeposit(req.bookId, f);
+          }
         }
-      } catch (_) {}
+      } catch (e) {
+        depositDebug.push({ ym: "-", category: "-", attribution: "-", amount: 0, status: "err", reason: String(e.message || e) });
+      }
     }
     // 清理残留月结（老版本落库的 wallet_txns 月结记录；月结现改为纯实时聚合，不再落库）
     db.prepare("DELETE FROM wallet_txns WHERE wallet_id=? AND book_id=? AND note LIKE '%月结%'").run(w.id, req.bookId);
@@ -393,6 +416,7 @@ r.get(
       linkedRows,
       linkedSum,
       monthly,
+      depositDebug,
       linkFrom: w.link_from || "",
       linkCategory: w.link_category || "",
     });

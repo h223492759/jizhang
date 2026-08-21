@@ -484,6 +484,18 @@ async function saveTxnEdit() {
           <div style="margin-top:6px; font-size:12px; color:var(--muted)">修改规则：点「修改钱包信息」编辑 → 定存细则</div>
         </div>
 
+        <!-- 定存细则匹配诊断（仅开发排障用：显示每条匹配流水的分配状态） -->
+        <div v-if="(detail.depositDebug || []).length" style="border:1px dashed var(--border); border-radius:8px; padding:10px; background:var(--surface-2); margin-bottom:8px; font-size:12px">
+          <div style="font-weight:600; margin-bottom:6px">定存匹配诊断</div>
+          <div v-for="(d, di) in detail.depositDebug" :key="di" style="display:flex; gap:8px; padding:2px 0">
+            <span class="muted" style="white-space:nowrap">{{ d.ym }}</span>
+            <span>{{ d.category }} · {{ d.attribution }} · {{ fmt(d.amount) }}</span>
+            <span :style="{ color: d.status === 'ok' ? 'var(--income, #16a34a)' : 'var(--expense, #dc2626)' }">
+              {{ d.status === 'ok' ? '✓ 已分配' : d.reason }}
+            </span>
+          </div>
+        </div>
+
         <!-- 资金记录 -->
         <div class="section-title" style="margin:18px 0 10px">资金记录（日期 · 金额 · 操作人）</div>
         <table class="tbl txn-tbl">
