@@ -528,8 +528,8 @@ export function reconcileMonthClose(bookId, flow) {
   if (flow.type && flow.type !== "expense" && flow.type !== "income") return;
   const ym = String(flow.flow_time).slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(ym)) return;
-  const lastMonth = dayjs().subtract(1, "month").format("YYYY-MM");
-  if (ym >= lastMonth) return; // 当月/上月不入库，实时算
+  // 注意：定存细则所有月份都落库（当月/上月也要写入资金记录，让用户能看到、能改/删）
+  // 之前 `ym >= lastMonth return` 是给「月结」用的（实时聚合展示），不适合定存细则
   // 找 link_category / link_links 包含此 cat 的钱包
   const wallets = db
     .prepare(
