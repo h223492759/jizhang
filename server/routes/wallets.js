@@ -61,6 +61,29 @@ const parseLinkLinks = (w) => {
   return [];
 };
 
+
+// 解析 deposit_rules（JSON 数组字符串 [{cat, owner, amount, start_ym, end_ym}, ...]）
+// 返回对象数组；解析失败或空返回 []
+const parseDepositRules = (w) => {
+  const raw = w.deposit_rules;
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((x) => ({
+        cat: String(x?.cat || "").trim(),
+        owner: String(x?.owner || "").trim(),
+        amount: Number(x?.amount || 0),
+        start_ym: String(x?.start_ym || "").trim(),
+        end_ym: String(x?.end_ym || "").trim(),
+      }))
+      .filter((x) => x.cat);
+  } catch (_) {
+    return [];
+  }
+};
+
 // 某（些）分类自某日起对钱包的净影响：收入计 +，支出计 −
 // 支持多行：每行一个 (cat, from)，求和
 const linkedSum = (bookId, linksOrCats, from) => {
@@ -123,6 +146,7 @@ r.get(
         manualBalance: a.balance || 0,
         linked: linked,
         balance: eff,
+        deposit_rules: parseDepositRules(w),
         total_in: a.total_in,
         total_out: a.total_out,
         count: a.count,
@@ -285,6 +309,7 @@ r.get(
       .prepare("SELECT * FROM wallets WHERE id=? AND book_id=?")
       .get(req.params.id, req.bookId);
     if (!w) return res.status(404).json({ error: "钱包不存在" });
+    w.deposit_rules = parseDepositRules(w);
     // 清理残留月结（老版本落库的 wallet_txns 月结记录；月结现改为纯实时聚合，不再落库）
     db.prepare("DELETE FROM wallet_txns WHERE wallet_id=? AND book_id=? AND note LIKE '%月结%'").run(w.id, req.bookId);
     const rows = db
@@ -346,7 +371,7 @@ r.get(
     // 排序：按 ymd DESC → 支出优先 → 分类 → 归属人
     monthly.sort((a, b) => (a.ymd < b.ymd ? 1 : a.ymd > b.ymd ? -1 : a.category.localeCompare(b.category, "zh") || a.attribution.localeCompare(b.attribution, "zh")));
     res.json({
-      wallet: w,
+      wallet: { ...w, deposit_rules: parseDepositRules(w) },
       rows,
       balance,
       linkedRows,
@@ -638,8 +663,9 @@ export function tryDeposit(bookId, flow) {
   if (totalNeed <= 0) return;
   // 金额必须 ≥ 匹配规则总额
   if (Number(flow.amount) < totalNeed) return;
-  // 当月该分类是否已分配过
-  const note = `工资分配·${flow.category}·${ym}`;
+  // 当月该 (分类 + 归属人) 是否已分配过（多归属人各自独立一次）
+  const owner = String(flow.attribution || "未标注").trim() || "未标注";
+  const note = `工资分配·${flow.category}·${owner}·${ym}`;
   const done = db.prepare("SELECT id FROM wallet_txns WHERE book_id=? AND note=?").get(bookId, note);
   if (done) return;
   // 写入各钱包分配记录
