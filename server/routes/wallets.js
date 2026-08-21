@@ -290,7 +290,7 @@ r.get(
     const historical = db
       .prepare(
         `SELECT id, amount, ymd, note FROM wallet_txns
-         WHERE wallet_id=? AND book_id=? AND note LIKE '%月结·%' AND ymd < ?
+         WHERE wallet_id=? AND book_id=? AND note LIKE '%月结%' AND ymd < ?
          ORDER BY ymd DESC, id DESC`
       )
       .all(w.id, req.bookId, lastMonthDay);
@@ -535,23 +535,22 @@ export function reconcileMonthClose(bookId, flow) {
   tx();
 }
 
-// 一次性迁移：老格式 `YYYY-MM 月结 · X · Y` → 新格式 `月结 · X · Y`（同时按当前真实数据重建）
-// 老月结通常是基于历史数据计算好的，但当时没考虑收入；直接清掉旧月结 + 对所有关联分类的 flows 重触发即可
-export function migrateMonthCloseFormat(bookId) {
-  // 找出所有 wallet_txns 老格式（note 含「YYYY-MM 月结」前缀）
-  const olds = db.prepare(
-    "SELECT id, wallet_id FROM wallet_txns WHERE book_id=? AND note GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9] 月结*'"
+// 月结兜底重建：对每个 wallet 的每个 linkLinks，从 link_from 起逐月触发一次 reconcileMonthClose
+// 幂等（内部 upsert），重复调用安全。
+// 解决历史月结缺失的根本问题：触发器只在新增/修改/删除单条流水时被调用，
+// 过去已存在的历史月数据可能从未被触发过（尤其是迁移初期或老数据），
+// 所以每次 GET 时跑一次兜底重建。
+const _rebuiltToday = new Map(); // bookId -> 'YYYY-MM-DD'
+export function rebuildMonthlyClose(bookId) {
+  const today = dayjs().format('YYYY-MM-DD');
+  if (_rebuiltToday.get(bookId) === today) return { rebuilt: 0, cached: true };
+  const wallets = db.prepare(
+    "SELECT * FROM wallets WHERE book_id=? AND (link_category IS NOT NULL AND link_category != '' AND link_category != '[]')"
   ).all(bookId);
-  if (!olds.length) return { migrated: false };
-  const walletIds = [...new Set(olds.map((o) => o.wallet_id))];
-  db.prepare(
-    "DELETE FROM wallet_txns WHERE book_id=? AND note GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9] 月结*'"
-  ).run(bookId);
-  // 对每个 wallet 的每个 linkLinks，从 link_from 起逐月触发一次（确保每月都被重建）
+  if (!wallets.length) return { rebuilt: 0 };
   const lastMonth = dayjs().subtract(1, "month");
-  for (const wid of walletIds) {
-    const w = db.prepare("SELECT * FROM wallets WHERE id=? AND book_id=?").get(wid, bookId);
-    if (!w) continue;
+  let touched = 0;
+  const rebuildOne = (w) => {
     const links = parseLinkLinks(w);
     for (const l of links) {
       if (!l.cat || !l.from) continue;
@@ -560,13 +559,35 @@ export function migrateMonthCloseFormat(bookId) {
       let cur = start.startOf("month");
       while (!cur.isAfter(lastMonth)) {
         const ym = cur.format("YYYY-MM");
-        const flow = db.prepare(
-          "SELECT * FROM flows WHERE book_id=? AND category=? AND substr(flow_time,1,7)=? LIMIT 1"
-        ).get(bookId, l.cat, ym);
-        if (flow) reconcileMonthClose(bookId, flow);
+        // 找该月该 cat 的任意一条流水（按 type 分别选一条：expense / income）
+        for (const type of ["expense", "income"]) {
+          const flow = db.prepare(
+            "SELECT * FROM flows WHERE book_id=? AND category=? AND type=? AND substr(flow_time,1,7)=? LIMIT 1"
+          ).get(bookId, l.cat, type, ym);
+          if (flow) {
+            reconcileMonthClose(bookId, flow);
+            touched++;
+          }
+        }
         cur = cur.add(1, "month");
       }
     }
+  };
+  const tx = db.transaction(() => { for (const w of wallets) rebuildOne(w); });
+  tx();
+  return { rebuilt: touched };
+}
+
+// 兼容旧入口：迁移老格式（YYYY-MM 月结·X·Y）。当前已统一用 rebuildMonthlyClose 兜底，
+// 老格式（如果还存在）会被 rebuildMonthlyClose 自然 upsert 覆盖；保留此函数备用。
+export function migrateMonthCloseFormat(bookId) {
+  const olds = db.prepare(
+    "SELECT id FROM wallet_txns WHERE book_id=? AND note GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9] 月结*'"
+  ).all(bookId);
+  if (olds.length) {
+    db.prepare(
+      "DELETE FROM wallet_txns WHERE book_id=? AND note GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9] 月结*'"
+    ).run(bookId);
   }
-  return { migrated: true, count: olds.length };
+  return rebuildMonthlyClose(bookId);
 }
