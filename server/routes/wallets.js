@@ -283,8 +283,8 @@ r.get(
     }
     // 月结：历史月（< 上月）从 wallet_txns 读（reconcileMonthClose 落库）；
     // 当月/上月实时聚合；合并返回
-    const thisMonth = dayjs().format("YYYY-MM");
-    const lastMonth = dayjs().subtract(1, "month").format("YYYY-MM");
+    // GET 时先做一次老格式迁移（YYYY-MM 月结·X·Y → 月结·X·Y，收入支出都重建）
+    migrateMonthCloseFormat(req.bookId);
     const lastMonthDay = dayjs().subtract(1, "month").endOf("month").format("YYYY-MM-DD");
     // 历史月：从 wallet_txns 读（note 含「月结 · 」），取 ymd < 上月月底的最后一天
     const historical = db
@@ -294,40 +294,46 @@ r.get(
          ORDER BY ymd DESC, id DESC`
       )
       .all(w.id, req.bookId, lastMonthDay);
-    // 当月/上月：实时聚合（按月 × 分类 × 归属人）
+    // 当月/上月：实时聚合（按月 × 分类 × 归属人 × 类型），收入/支出都算
     const liveMap = new Map();
     for (const l of linkLinks) {
       if (!l.cat || !l.from) continue;
       const mrows = db
         .prepare(
-          `SELECT substr(flow_time,1,7) AS ym, category,
+          `SELECT substr(flow_time,1,7) AS ym, type, category,
                   CASE WHEN attribution='' OR attribution IS NULL THEN '未标注' ELSE attribution END AS attribution,
                   SUM(amount) AS sum
            FROM flows
-           WHERE book_id=? AND category=? AND type='expense'
-             AND substr(flow_time,1,10) >= ? AND substr(flow_time,1,7) >= ?
-           GROUP BY ym, category, attribution`
+           WHERE book_id=? AND category=? AND substr(flow_time,1,10) >= ?
+             AND substr(flow_time,1,7) >= ?
+           GROUP BY ym, type, category, attribution`
         )
-        .all(req.bookId, l.cat, l.from, lastMonth);
+        .all(req.bookId, l.cat, l.from, dayjs().subtract(1, "month").format("YYYY-MM"));
       for (const m of mrows) {
-        const key = `${m.ym}|${m.category}|${m.attribution}`;
+        const key = `${m.ym}|${m.type}|${m.category}|${m.attribution}`;
         if (!liveMap.has(key)) {
           const lastDay = dayjs(m.ym + "-01").endOf("month").format("YYYY-MM-DD");
-          liveMap.set(key, { ym: m.ym, ymd: lastDay, category: m.category, attribution: m.attribution, sum: 0, live: true });
+          liveMap.set(key, { ym: m.ym, ymd: lastDay, type: m.type, category: m.category, attribution: m.attribution, sum: 0 });
         }
         liveMap.get(key).sum += Number(m.sum || 0);
       }
     }
-    const liveRows = [...liveMap.values()].filter((m) => m.sum > 0).map((m) => ({ ...m, amount: -m.sum }));
-    // 合并：历史月（来自 wallet_txns，note 含 ym+cat+owner）+ 当月/上月（实时聚合）
+    const liveRows = [...liveMap.values()]
+      .filter((m) => m.sum > 0)
+      .map((m) => ({ ...m, amount: m.type === "expense" ? -m.sum : m.sum }));
+    // 合并：历史月（来自 wallet_txns，新格式 note '月结 · X · Y'，兼容老格式）+ 当月/上月（实时聚合）
     const monthly = [];
     for (const h of historical) {
-      const m = /^(\d{4}-\d{2}) 月结 · (.+?) · (.+)$/.exec(h.note || "");
-      if (!m) continue;
-      monthly.push({ ym: m[1], ymd: h.ymd, category: m[2], attribution: m[3], amount: -Math.abs(Number(h.amount)) });
+      const m1 = /^月结 · (.+?) · (.+)$/.exec(h.note || "");
+      const m2 = /^\d{4}-\d{2} 月结 · (.+?) · (.+)$/.exec(h.note || "");
+      const mm = m1 || m2;
+      if (!mm) continue;
+      const amt = Number(h.amount || 0);
+      monthly.push({ ym: (h.ymd || "").slice(0, 7), ymd: h.ymd, type: amt < 0 ? "expense" : "income", category: mm[1], attribution: mm[2], amount: amt });
     }
     for (const l of liveRows) monthly.push(l);
-    monthly.sort((a, b) => (a.ym < b.ym ? 1 : a.ym > b.ym ? -1 : a.category.localeCompare(b.category, "zh") || a.attribution.localeCompare(b.attribution, "zh")));
+    // 排序：按 ymd DESC → 支出优先 → 分类 → 归属人
+    monthly.sort((a, b) => (a.ymd < b.ymd ? 1 : a.ymd > b.ymd ? -1 : a.category.localeCompare(b.category, "zh") || a.attribution.localeCompare(b.attribution, "zh")));
     res.json({
       wallet: w,
       rows,
@@ -480,10 +486,10 @@ export default r;
 
 // 月结触发器：某条流水变动后，对 (ym, cat, attribution) 重新聚合，写入 wallet_txns
 // 仅历史月（< 上月）落库；当前月/上月不落库，由 GET 实时聚合
-// note 格式：`${ym} 月结 · ${cat} · ${owner}`（含归属人用于去重 upsert）
+// note 格式：`月结 · ${cat} · ${owner}`（去 YYYY-MM 前缀；按 wallet_id+ymd+note 唯一）
 export function reconcileMonthClose(bookId, flow) {
   if (!flow || !flow.flow_time || !flow.category) return;
-  if (flow.type && flow.type !== "expense") return; // 只关心支出
+  if (flow.type && flow.type !== "expense" && flow.type !== "income") return;
   const ym = String(flow.flow_time).slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(ym)) return;
   const lastMonth = dayjs().subtract(1, "month").format("YYYY-MM");
@@ -494,34 +500,73 @@ export function reconcileMonthClose(bookId, flow) {
     .all(bookId, `%"${flow.category}"%`, `%"${flow.category}"%`);
   const lastDay = dayjs(ym + "-01").endOf("month").format("YYYY-MM-DD");
   const owner = flow.attribution || "未标注";
+  const flowType = flow.type || "expense";
   const reconcileOne = (w) => {
     const links = parseLinkLinks(w);
     const link = links.find((l) => l.cat === flow.category && l.from <= String(flow.flow_time).slice(0, 10));
     if (!link) return;
-    const note = `${ym} 月结 · ${flow.category} · ${owner}`;
+    const note = `月结 · ${flow.category} · ${owner}`;
     const sumRow = db
       .prepare(
         `SELECT COALESCE(SUM(amount),0) AS s FROM flows
-         WHERE book_id=? AND category=? AND type='expense'
+         WHERE book_id=? AND category=? AND type=?
          AND substr(flow_time,1,7)=?
          AND (CASE WHEN attribution='' OR attribution IS NULL THEN '未标注' ELSE attribution END) = ?`
       )
-      .get(bookId, flow.category, ym, owner);
+      .get(bookId, flow.category, flowType, ym, owner);
     const sum = Number(sumRow?.s || 0);
+    // 支出存负数，收入存正数（保持 wallet_txns 净额符号）
+    const signed = flowType === "expense" ? -Math.abs(sum) : Math.abs(sum);
     if (sum <= 0) {
       db.prepare("DELETE FROM wallet_txns WHERE wallet_id=? AND book_id=? AND note=?").run(w.id, bookId, note);
       return;
     }
     const ex = db.prepare("SELECT id FROM wallet_txns WHERE wallet_id=? AND book_id=? AND note=?").get(w.id, bookId, note);
     if (ex) {
-      db.prepare("UPDATE wallet_txns SET amount=?, ymd=? WHERE id=?").run(-sum, lastDay, ex.id);
+      db.prepare("UPDATE wallet_txns SET amount=?, ymd=? WHERE id=?").run(signed, lastDay, ex.id);
     } else {
       db.prepare(
         `INSERT INTO wallet_txns (book_id,wallet_id,amount,ymd,note,user_id,op_user)
          VALUES (?,?,?,?,?,?,?)`
-      ).run(bookId, w.id, -sum, lastDay, note, flow.user_id || 0, owner);
+      ).run(bookId, w.id, signed, lastDay, note, flow.user_id || 0, owner);
     }
   };
   const tx = db.transaction(() => { for (const w of wallets) reconcileOne(w); });
   tx();
+}
+
+// 一次性迁移：老格式 `YYYY-MM 月结 · X · Y` → 新格式 `月结 · X · Y`（同时按当前真实数据重建）
+// 老月结通常是基于历史数据计算好的，但当时没考虑收入；直接清掉旧月结 + 对所有关联分类的 flows 重触发即可
+export function migrateMonthCloseFormat(bookId) {
+  // 找出所有 wallet_txns 老格式（note 含「YYYY-MM 月结」前缀）
+  const olds = db.prepare(
+    "SELECT id, wallet_id FROM wallet_txns WHERE book_id=? AND note GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9] 月结*'"
+  ).all(bookId);
+  if (!olds.length) return { migrated: false };
+  const walletIds = [...new Set(olds.map((o) => o.wallet_id))];
+  db.prepare(
+    "DELETE FROM wallet_txns WHERE book_id=? AND note GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9] 月结*'"
+  ).run(bookId);
+  // 对每个 wallet 的每个 linkLinks，从 link_from 起逐月触发一次（确保每月都被重建）
+  const lastMonth = dayjs().subtract(1, "month");
+  for (const wid of walletIds) {
+    const w = db.prepare("SELECT * FROM wallets WHERE id=? AND book_id=?").get(wid, bookId);
+    if (!w) continue;
+    const links = parseLinkLinks(w);
+    for (const l of links) {
+      if (!l.cat || !l.from) continue;
+      const start = dayjs(l.from);
+      if (!start.isValid()) continue;
+      let cur = start.startOf("month");
+      while (!cur.isAfter(lastMonth)) {
+        const ym = cur.format("YYYY-MM");
+        const flow = db.prepare(
+          "SELECT * FROM flows WHERE book_id=? AND category=? AND substr(flow_time,1,7)=? LIMIT 1"
+        ).get(bookId, l.cat, ym);
+        if (flow) reconcileMonthClose(bookId, flow);
+        cur = cur.add(1, "month");
+      }
+    }
+  }
+  return { migrated: true, count: olds.length };
 }

@@ -415,7 +415,7 @@ async function saveTxnEdit() {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="t in detail.rows" :key="t.id">
+            <tr v-for="t in detail.rows" :key="'t' + t.id">
               <td class="c-d"><b>{{ t.ymd }}</b></td>
               <td class="num" :class="t.amount >= 0 ? 'income' : 'expense'">
                 <b>{{ t.amount >= 0 ? '+' : '−' }}{{ fmt(Math.abs(t.amount)) }}</b>
@@ -427,35 +427,18 @@ async function saveTxnEdit() {
                 <button class="btn btn-sm btn-danger" @click="delTxn(t)">删</button>
               </td>
             </tr>
-            <tr v-if="!detail.rows.length">
-              <td colspan="5" class="muted" style="text-align:center;padding:24px 0">还没有资金记录</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <!-- 关联分类自动记录（每月底自动按分类×归属人汇总，流水变动实时更新） -->
-        <div class="section-title" style="margin:18px 0 10px" v-if="detail.linkCategory">
-          <span>关联分类月结 · {{ detail.linkCategory }}（自 {{ detail.linkFrom }}）</span>
-          <span class="muted" style="font-size:12px; font-weight:normal">每月底自动汇总各分类、各归属人的支出，流水变动实时更新</span>
-        </div>
-        <table class="tbl txn-tbl" v-if="detail.linkCategory">
-          <thead>
-            <tr>
-              <th class="c-d">日期</th>
-              <th class="num">金额</th>
-              <th>说明</th>
-              <th class="c-op hide-mobile">归属人</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="m in detail.monthly || []" :key="m.ym + m.category + m.attribution">
+            <!-- 自动月结（历史落库 + 当月/上月实时）：自动生成，无「改/删」 -->
+            <tr v-for="m in detail.monthly || []" :key="'m' + m.ymd + m.category + m.attribution" class="row-monthly">
               <td class="c-d"><b>{{ m.ymd }}</b></td>
-              <td class="num expense"><b>−{{ fmt(Math.abs(m.amount)) }}</b></td>
-              <td class="muted">{{ m.ym }} 月结 · {{ m.category }}</td>
+              <td class="num" :class="m.amount >= 0 ? 'income' : 'expense'">
+                <b>{{ m.amount >= 0 ? '+' : '−' }}{{ fmt(Math.abs(m.amount)) }}</b>
+              </td>
+              <td class="muted">月结 · {{ m.category }}</td>
               <td class="c-op muted hide-mobile">{{ m.attribution }}</td>
+              <td class="c-act muted small">自动</td>
             </tr>
-            <tr v-if="!(detail.monthly || []).length">
-              <td colspan="4" class="muted" style="text-align:center;padding:20px 0">该分类自 {{ detail.linkFrom }} 起暂无支出</td>
+            <tr v-if="!detail.rows.length && !(detail.monthly || []).length">
+              <td colspan="5" class="muted" style="text-align:center;padding:24px 0">还没有资金记录</td>
             </tr>
           </tbody>
         </table>
@@ -509,6 +492,9 @@ async function saveTxnEdit() {
 .txn-tbl .c-d { width: 110px; white-space: nowrap; }
 .txn-tbl .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .txn-tbl .c-op { width: 90px; }
+/* 自动月结行：浅色底 + 无操作按钮 */
+.txn-tbl tr.row-monthly td { background: var(--surface-2); font-size: 13px; }
+.txn-tbl tr.row-monthly td.c-d b { font-weight: 600; }
 .txn-tbl .c-act { width: 96px; text-align: right; }
 
 @media (max-width: 1000px) { .wallet-grid { grid-template-columns: repeat(2, 1fr); } }
