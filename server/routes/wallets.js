@@ -496,8 +496,14 @@ export function reconcileMonthClose(bookId, flow) {
   if (ym >= lastMonth) return; // 当月/上月不入库，实时算
   // 找 link_category / link_links 包含此 cat 的钱包
   const wallets = db
-    .prepare("SELECT * FROM wallets WHERE book_id=? AND (link_category LIKE ? OR link_links LIKE ?)")
-    .all(bookId, `%"${flow.category}"%`, `%"${flow.category}"%`);
+    .prepare(
+      `SELECT * FROM wallets WHERE book_id=? AND (
+        link_category = ? OR
+        link_category LIKE ? OR
+        link_links LIKE ?
+      )`
+    )
+    .all(bookId, flow.category, `%"${flow.category}"%`, `%"${flow.category}"%`);
   const lastDay = dayjs(ym + "-01").endOf("month").format("YYYY-MM-DD");
   const owner = flow.attribution || "未标注";
   const flowType = flow.type || "expense";
