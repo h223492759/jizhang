@@ -440,8 +440,10 @@ r.put(
         ? ((b.description || "").toString().trim() || effectiveCat)
         : cur.description;
 
+    // 隐藏 AI 标签：b.source 传 "" 时清空（其他值原样写或保留）
+    const newSource = b.source !== undefined ? (["ai", "auto"].includes(b.source) ? b.source : "") : cur.source;
     db.prepare(
-      `UPDATE flows SET type=?, amount=?, category=?, payment_method=?, description=?, flow_time=?, attribution=?, attribution_uid=?, updated_at=datetime('now','localtime') WHERE id=?`
+      `UPDATE flows SET type=?, amount=?, category=?, payment_method=?, description=?, flow_time=?, attribution=?, attribution_uid=?, source=?, updated_at=datetime('now','localtime') WHERE id=?`
     ).run(
       b.type === "income" ? "income" : "expense",
       Number(b.amount) || cur.amount,
@@ -451,6 +453,7 @@ r.put(
       stampSaveTime(b.flow_time, cur.flow_time),
       attrText,
       attrUid,
+      newSource,
       cur.id
     );
     res.json({ ok: true });

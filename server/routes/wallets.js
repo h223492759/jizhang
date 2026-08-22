@@ -328,8 +328,8 @@ r.get(
             const fYm = String(f.flow_time).slice(0, 7);
             const fOwner = String(f.attribution || "未标注").trim() || "未标注";
             const already = db
-              .prepare("SELECT id FROM wallet_txns WHERE book_id=? AND note=?")
-              .get(req.bookId, `工资分配·${f.category}·${fOwner}·${fYm}`);
+              .prepare("SELECT id FROM wallet_txns WHERE book_id=? AND note=? AND wallet_id=?")
+              .get(req.bookId, `工资后存·${fOwner}·${fYm}`, w.id);
             if (already) {
               depositDebug.push({ ym: fYm, category: f.category, attribution: fOwner, amount: f.amount, status: "ok", reason: "已分配" });
               continue;
@@ -674,7 +674,7 @@ export function migrateMonthCloseFormat(bookId) {
 // 定期存入（工资自动分配）：收入流水创建时触发。
 // 规则：当月该来源分类的第一笔收入流水，若金额 ≥ 匹配规则总额 → 按规则给各钱包写入 +amount 资金记录
 // 全落库（wallet_txns），读取即普通资金记录，无实时聚合 → 不会卡。
-// 防重：note `工资分配·{cat}·{ym}` 全局唯一（同一分类同一月只分配一次）
+// 防重：note `工资后存·{owner}·{ym}` 全局唯一（每 (cat, owner, ym) 独立一次）
 export function tryDeposit(bookId, flow) {
   if (!flow || !flow.flow_time || !flow.category || flow.type !== "income") return;
   const ym = String(flow.flow_time).slice(0, 7);
@@ -708,15 +708,15 @@ export function tryDeposit(bookId, flow) {
   if (Number(flow.amount) < totalNeed) return;
   // 当月该 (分类 + 归属人) 是否已分配过（多归属人各自独立一次）
   const owner = String(flow.attribution || "未标注").trim() || "未标注";
-  const note = `工资分配·${flow.category}·${owner}·${ym}`;
-  const done = db.prepare("SELECT id FROM wallet_txns WHERE book_id=? AND note=?").get(bookId, note);
-  if (done) return;
-  // 写入各钱包分配记录
+  const note = `工资后存·${owner}·${ym}`;
+  // 按 (note, wallet_id) 防重（note 不含 cat/wallet 字段，每钱包独立）
+  const existsStmt = db.prepare("SELECT id FROM wallet_txns WHERE book_id=? AND note=? AND wallet_id=?");
   const stmt = db.prepare(
     "INSERT INTO wallet_txns (book_id,wallet_id,amount,ymd,note,user_id,op_user) VALUES (?,?,?,?,?,?,?)"
   );
   const tx = db.transaction(() => {
     for (const m of matched) {
+      if (existsStmt.get(bookId, note, m.wallet.id)) continue;
       stmt.run(bookId, m.wallet.id, m.amount, String(flow.flow_time).slice(0, 10), note, flow.user_id || 0, flow.attribution || "");
     }
   });
