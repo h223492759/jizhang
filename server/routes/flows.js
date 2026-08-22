@@ -162,6 +162,14 @@ r.get(
         .prepare(select + ` ORDER BY f.id`)
         .all({ bookId });
     }
+    // 回填：老版本没保存 source 字段（df09b37 之前），根据 payment_method 推断 AI 自动记账
+    // 微信支付 / 支付宝 / 云闪付 都是自动记账典型来源
+    for (const f of changed) {
+      if ((!f.source || f.source === '') &&
+          ['微信支付', '支付宝', '云闪付'].includes(f.payment_method || '')) {
+        f.source = 'auto';
+      }
+    }
     res.json({
       all_ids: allIds,
       changed,
