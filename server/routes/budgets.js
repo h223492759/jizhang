@@ -12,9 +12,18 @@ r.get(
   wrap((req, res) => {
     const year = Number(req.query.year) || new Date().getFullYear();
 
-    const budgets = db
-      .prepare("SELECT category, amount, expression, sort FROM budgets WHERE book_id=? AND year=? ORDER BY sort, category")
-      .all(req.bookId, year);
+    let budgets;
+    try {
+      budgets = db
+        .prepare("SELECT category, amount, expression, COALESCE(sort, 0) AS sort FROM budgets WHERE book_id=? AND year=? ORDER BY COALESCE(sort, 0), category")
+        .all(req.bookId, year);
+    } catch (e) {
+      // 老数据库没 sort 列，降级到无 sort
+      console.warn('[budgets] sort 列缺失，降级:', e.message);
+      budgets = db
+        .prepare("SELECT category, amount, expression FROM budgets WHERE book_id=? AND year=? ORDER BY category")
+        .all(req.bookId, year);
+    }
     const total = budgets.find((b) => b.category === "");
     const cats = budgets.filter((b) => b.category !== "");
 
@@ -82,7 +91,7 @@ r.get(
   requireBook,
   wrap((req, res) => {
     const rows = db
-      .prepare("SELECT year, category, amount, expression, sort FROM budgets WHERE book_id=? ORDER BY year, sort, category")
+      .prepare("SELECT year, category, amount, expression, COALESCE(sort, 0) AS sort FROM budgets WHERE book_id=? ORDER BY year, COALESCE(sort, 0), category")
       .all(req.bookId);
     res.json({ list: rows });
   })
@@ -109,7 +118,7 @@ r.post(
     if (!storeCat) return res.status(400).json({ error: "请选择分类" });
 
     // 已存在的 sort 保留；新记录用当前已有条数 * 10 当初始 sort
-    const cur = db.prepare("SELECT sort FROM budgets WHERE book_id=? AND year=? AND category=?").get(req.bookId, year, storeCat);
+    const cur = db.prepare("SELECT COALESCE(sort, 0) AS sort FROM budgets WHERE book_id=? AND year=? AND category=?").get(req.bookId, year, storeCat);
     const sortVal = cur?.sort || ((db.prepare("SELECT COUNT(*) AS n FROM budgets WHERE book_id=? AND year=?").get(req.bookId, year).n + 1) * 10);
 
     const stmt = db.prepare(
