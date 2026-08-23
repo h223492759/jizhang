@@ -215,8 +215,10 @@ const addedBudgetsSort = addColumnIfMissing(
 // 老数据一次性回填 source（v260823-2335 之前 server 没保存 source 字段）
 // 根据 payment_method 推断 AI 自动记账：只跑一次，只更新当前 source 为空的记录
 // （不能放在每次 GET /flows 时推断——会覆盖用户隐藏操作）
+// 注意：source = '' 表示用户已隐藏 AI 标签，绝对不能被回填覆盖！
+// 只回填 source IS NULL（数据库里真正没值的 NULL）
 const backfillFlowsSource = db.prepare(
-  "UPDATE flows SET source = 'auto' WHERE (source IS NULL OR source = '') AND payment_method IN ('微信支付', '支付宝', '云闪付')"
+  "UPDATE flows SET source = 'auto' WHERE source IS NULL AND payment_method IN ('微信支付', '支付宝', '云闪付')"
 ).run()
 if (backfillFlowsSource.changes > 0) {
   console.log("[db] 回填 flows.source 字段，影响", backfillFlowsSource.changes, "条记录")
