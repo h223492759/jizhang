@@ -302,7 +302,7 @@ r.post(
     // 没写名称时，自动用分类名（如「餐饮」），方便检索与统计
     const description = (b.description || "").toString().trim() || category;
     // 来源标记：'' 手动 | 'ai' AI识别 | 'auto' 通知自动记账
-    const source = ["ai", "auto"].includes(b.source) ? b.source : "";
+    const source = ["ai", "auto", "manual"].includes(b.source) ? b.source : "";
     // 客户端幂等键：离线补传重试时按 (book_id, client_uuid) 去重，绝不产生重复流水
     const uuid = (b.uuid || "").toString().trim();
     if (uuid) {
@@ -443,7 +443,7 @@ r.put(
         : cur.description;
 
     // 隐藏 AI 标签：b.source 传 "" 时清空（其他值原样写或保留）
-    const newSource = b.source !== undefined ? (["ai", "auto"].includes(b.source) ? b.source : "") : cur.source;
+    const newSource = b.source !== undefined ? (["ai", "auto", "manual"].includes(b.source) ? b.source : "") : cur.source;
     db.prepare(
       `UPDATE flows SET type=?, amount=?, category=?, payment_method=?, description=?, flow_time=?, attribution=?, attribution_uid=?, source=?, updated_at=datetime('now','localtime') WHERE id=?`
     ).run(
