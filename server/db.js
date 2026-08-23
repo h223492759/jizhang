@@ -206,6 +206,11 @@ const added = addColumnIfMissing(
   "attribution_uid",
   "attribution_uid INTEGER"
 );
+const addedBudgetsSort = addColumnIfMissing(
+  "budgets",
+  "sort",
+  "sort INTEGER NOT NULL DEFAULT 0"
+);
 if (added) {
   // 历史数据回填：按昵称精确匹配到用户
   db.exec(`
