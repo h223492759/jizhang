@@ -162,14 +162,8 @@ r.get(
         .prepare(select + ` ORDER BY f.id`)
         .all({ bookId });
     }
-    // 回填：老版本没保存 source 字段（df09b37 之前），根据 payment_method 推断 AI 自动记账
-    // 微信支付 / 支付宝 / 云闪付 都是自动记账典型来源
-    for (const f of changed) {
-      if ((!f.source || f.source === '') &&
-          ['微信支付', '支付宝', '云闪付'].includes(f.payment_method || '')) {
-        f.source = 'auto';
-      }
-    }
+    // 注意：不再运行时推断 source！
+    // 老数据回填放在 server 启动时（db.js），避免覆盖用户'隐藏 AI 标签'操作。
     res.json({
       all_ids: allIds,
       changed,

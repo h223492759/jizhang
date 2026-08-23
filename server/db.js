@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS budgets (
   year     INTEGER NOT NULL,
   category TEXT NOT NULL DEFAULT '',         -- '' = 年度总预算；否则为分类预算
   amount   REAL NOT NULL DEFAULT 0,
+  sort     INTEGER NOT NULL DEFAULT 0,       -- 排序（同年/月内可调序）
   UNIQUE (book_id, year, category)
 );
 
@@ -211,6 +212,15 @@ const addedBudgetsSort = addColumnIfMissing(
   "sort",
   "sort INTEGER NOT NULL DEFAULT 0"
 );
+// 老数据一次性回填 source（v260823-2335 之前 server 没保存 source 字段）
+// 根据 payment_method 推断 AI 自动记账：只跑一次，只更新当前 source 为空的记录
+// （不能放在每次 GET /flows 时推断——会覆盖用户隐藏操作）
+const backfillFlowsSource = db.prepare(
+  "UPDATE flows SET source = 'auto' WHERE (source IS NULL OR source = '') AND payment_method IN ('微信支付', '支付宝', '云闪付')"
+).run()
+if (backfillFlowsSource.changes > 0) {
+  console.log("[db] 回填 flows.source 字段，影响", backfillFlowsSource.changes, "条记录")
+}
 if (added) {
   // 历史数据回填：按昵称精确匹配到用户
   db.exec(`
