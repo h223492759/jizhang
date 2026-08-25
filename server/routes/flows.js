@@ -21,15 +21,7 @@ function stampSaveTime(input, fallbackDate) {
   if (s.length > 10 && s.includes(":")) {
     return dayjs(s).format("YYYY-MM-DD HH:mm:ss");
   }
-  // 编辑场景（input 空但有 fallbackDate）：保留原流水的时间，不要改成当前时刻！
-  // 否则改分类/名称后 flow_time 被改成'现在'，流水在同一天内跳到最上方，
-  // 而本地 DB 还是旧时间 → 出现'修改后在最下方，刷新后才在最上方'的错乱。
-  if (fallbackDate && !s) {
-    const fb = String(fallbackDate);
-    if (fb.length > 10 && fb.includes(":")) return fb.slice(0, 19);
-    return `${fb.slice(0, 10)} ${dayjs().format("HH:mm:ss")}`;
-  }
-  const d = (s || "").slice(0, 10);
+  const d = (s || fallbackDate || "").slice(0, 10);
   if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
     return `${d} ${dayjs().format("HH:mm:ss")}`;
   }
