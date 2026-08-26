@@ -18,7 +18,8 @@ export function computeNextRun(freq, dayOfMonth, monthOfYear, base = new Date())
     const m = pad(monthOfYear);
     const d = pad(dayOfMonth);
     const thisYear = dayjs(`${t.year()}-${m}-${d}`);
-    const next = thisYear.isAfter(t, "day")
+    // thisYear >= t（同一天/未来）→ 返回 thisYear；已过 → 跳下一年
+    const next = thisYear.isBefore(t, "day")
       ? thisYear
       : dayjs(`${t.year() + 1}-${m}-${d}`);
     return next.format("YYYY-MM-DD");
@@ -26,7 +27,9 @@ export function computeNextRun(freq, dayOfMonth, monthOfYear, base = new Date())
   // monthly
   const dm = Math.min(dayOfMonth, t.daysInMonth());
   const thisMonth = t.date(dm);
-  if (thisMonth.isAfter(t, "day")) return thisMonth.format("YYYY-MM-DD");
+  // thisMonth >= t（同一天/未来）→ 返回 thisMonth，让 generateDueRecurring 生成；
+  // 严格已过 → 跳下个月。修复：原来 isAfter 同一天会返回 false，导致当天跳下个月不生成。
+  if (!thisMonth.isBefore(t, "day")) return thisMonth.format("YYYY-MM-DD");
   const nx = t.add(1, "month");
   const dm2 = Math.min(dayOfMonth, nx.daysInMonth());
   return nx.date(dm2).format("YYYY-MM-DD");
