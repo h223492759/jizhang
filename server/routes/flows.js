@@ -294,7 +294,12 @@ r.post(
     const b = req.body || {};
     const type = b.type === "income" ? "income" : "expense";
     const amount = Number(b.amount);
-    if (!amount || amount <= 0)
+    // 允许 AI 自动记账 0 元占位流水（source=auto + 名称含「待录入」）：用户后续手动补金额
+    const isAiPlaceholder =
+      amount === 0 &&
+      b.source === "auto" &&
+      String(b.description || "").includes("待录入");
+    if (!isAiPlaceholder && (!amount || amount <= 0))
       return res.status(400).json({ error: "金额必须大于0" });
     const flow_time = stampSaveTime(b.flow_time);
     const attr = resolveAttribution(req.bookId, req.user, b);
