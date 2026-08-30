@@ -457,9 +457,9 @@ r.put(
       effectiveCat,
       (b.payment_method ?? cur.payment_method).trim(),
       description,
-      // 编辑时不传 fallbackDate：flow_time 空则完全用当前时刻（YYYY-MM-DD HH:mm:ss），
-      // 修改后流水跳到今天最上方（用户期望：新的时间戳）
-      stampSaveTime(b.flow_time),
+      // 编辑时保留原流水时间（用户澄清：不改时间就留在原日期分组；
+      // 排序靠 updated_at 决定'修改过的排该天最上方'）
+      stampSaveTime(b.flow_time, cur.flow_time),
       attrText,
       attrUid,
       newSource,
