@@ -269,6 +269,22 @@ function ownerShort(name) {
   if (!s) return '我';
   return s.length <= 2 ? s : s.slice(-2);
 }
+
+// ---------------- 分类排行（对齐安卓「分类排行」列表，数据源同分类饼图） ----------------
+const catTotal = computed(() => category.value.reduce((s, c) => s + Number(c.value || 0), 0));
+const catMax = computed(() => category.value.reduce((s, c) => Math.max(s, Number(c.value || 0)), 0));
+function catPct(c) {
+  if (!catTotal.value) return "0%";
+  return ((Number(c.value) / catTotal.value) * 100).toFixed(0) + "%";
+}
+function catBarPct(c) {
+  if (!catMax.value) return "0%";
+  return (Number(c.value) / catMax.value) * 100 + "%";
+}
+// 点击排行行 → 明细弹窗（按该分类 + 当前类型过滤，与安卓 CategoryDetailPage 等价）
+async function onRankClick(name) {
+  await openDetail({ type: type.value }, "category", name);
+}
 </script>
 
 <template>
@@ -330,6 +346,27 @@ function ownerShort(name) {
         <EChart :key="'daily-' + chartKey" :option="dailyOpt" v-if="daily.length" :height="'280px'" />
         <div v-if="!daily.length" class="empty muted">暂无数据</div>
       </div>
+    </div>
+
+    <!-- 分类排行（对齐安卓：图标 + 名称 + 百分比 + 金额 + 进度条，点击行查看该分类明细） -->
+    <div class="card rank-card">
+      <div class="rank-head">
+        <span class="section-title">{{ type==='income'?'收入':'支出' }}分类排行</span>
+        <span v-if="category.length" class="muted small">点击分类查看明细</span>
+      </div>
+      <div v-if="category.length" class="rank-list">
+        <div v-for="(c, i) in category" :key="c.name" class="rank-row" @click="onRankClick(c.name)">
+          <span class="rank-icon" :style="{ background: PALETTE[i % PALETTE.length] + '1a', color: PALETTE[i % PALETTE.length] }">{{ catIcon(c.name) }}</span>
+          <div class="rank-main">
+            <div class="rank-line1">
+              <span class="rank-name">{{ c.name }} <span class="rank-pct muted">{{ catPct(c) }}</span></span>
+              <span class="rank-amt">{{ fmt(c.value) }}</span>
+            </div>
+            <div class="rank-bar"><i :style="{ width: catBarPct(c), background: PALETTE[i % PALETTE.length] }"></i></div>
+          </div>
+        </div>
+      </div>
+      <div v-else class="empty muted" style="height:100px">暂无{{ type==='income'?'收入':'支出' }}数据</div>
     </div>
 
     <!-- 明细弹窗（支持弹窗内快速切换 支出/收入 + 月/年） -->
@@ -425,6 +462,21 @@ export default { components: { EChart } };
 .clear-btn { font-size: 11px; padding: 3px 8px; }
 .empty { display: flex; align-items: center; justify-content: center; height: 300px; }
 @media (max-width: 720px) { .cards { grid-template-columns: repeat(2,1fr); } .charts { grid-template-columns: 1fr; } .daily-card { grid-column: span 1; } }
+
+/* 分类排行（对齐安卓 _catRows：图标 + 名称/百分比 + 金额 + 进度条） */
+.rank-card { margin-top: 16px; }
+.rank-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.rank-list { display: flex; flex-direction: column; }
+.rank-row { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 10px; cursor: pointer; transition: background .15s; }
+.rank-row:hover { background: var(--surface-2); }
+.rank-icon { flex: 0 0 38px; width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+.rank-main { flex: 1; min-width: 0; }
+.rank-line1 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.rank-name { font-size: 14px; font-weight: 600; color: var(--text); }
+.rank-pct { font-size: 12px; margin-left: 6px; }
+.rank-amt { font-size: 14px; font-weight: 800; color: var(--text); }
+.rank-bar { height: 7px; border-radius: 6px; background: var(--surface); overflow: hidden; margin-top: 6px; }
+.rank-bar i { display: block; height: 100%; border-radius: 6px; }
 
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
 .modal { background: var(--surface); color: var(--text); width: min(1100px, 100%); max-width: min(1100px, 100%); max-height: 88vh; border-radius: 14px; display: flex; flex-direction: column; box-shadow: var(--shadow); overflow: hidden; }

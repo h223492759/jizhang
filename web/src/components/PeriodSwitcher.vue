@@ -1,11 +1,11 @@
 <script setup>
-import { computed } from "vue";
+import { computed, ref, watch, nextTick, onMounted } from "vue";
 import dayjs from "dayjs";
 
 // 月/年快速选择 chips（对齐安卓图表页交互）：
-// - 月模式：本月 / 上月 / N月（近 3 年，未来月份不显示）
-// - 年模式：今年 / 去年 / N年（近 4 年）
-// 选中项高亮；title 显示完整年月便于识别跨年月份。
+// - 月模式：本月 / 上月 / N月（近 3 年，未来月份不显示），横向滚动
+//   且选中项始终居中（进入时居中一次；手动左滑/右滑后点选任意月也自动居中）
+// - 年模式：今年 / 去年 / N年（近 4 年），固定 2 行 2 列展示，切换高度不跳动
 const props = defineProps({
   mode: { type: String, default: "month" }, // month | year
   modelValue: { type: String, default: "" }, // YYYY-MM（月模式）或 YYYY（年模式）
@@ -45,13 +45,37 @@ const opts = computed(() => (props.mode === "year" ? yearOpts.value : monthOpts.
 function pick(v) {
   if (v !== props.modelValue) emit("update:modelValue", v);
 }
+
+// ---------- 选中项居中（仅月模式横向滚动时需要；年模式 2×2 网格无需滚动） ----------
+const wrapEl = ref(null);
+const chipEls = ref({}); // value -> DOM el
+
+function setChipRef(v, el) {
+  if (el) chipEls.value[v] = el;
+}
+
+function centerSelected() {
+  if (props.mode !== "month") return;
+  const wrap = wrapEl.value;
+  if (!wrap) return;
+  const el = chipEls.value[props.modelValue];
+  if (!el) return;
+  const target = el.offsetLeft - (wrap.clientWidth - el.offsetWidth) / 2;
+  wrap.scrollTo({ left: Math.max(0, target), behavior: "smooth" });
+}
+
+onMounted(() => nextTick(centerSelected));
+watch(() => props.modelValue, () => nextTick(centerSelected));
+// 月/年切换后重建渲染，重新居中
+watch(() => props.mode, () => nextTick(centerSelected));
 </script>
 
 <template>
-  <div class="period-chips">
+  <div class="period-chips" :class="'mode-' + mode" ref="wrapEl">
     <button
       v-for="o in opts"
       :key="o.value"
+      :ref="(el) => setChipRef(o.value, el)"
       class="chip"
       :class="{ on: o.value === modelValue }"
       :title="o.full"
@@ -61,7 +85,26 @@ function pick(v) {
 </template>
 
 <style scoped>
-.period-chips { display: flex; gap: 6px; overflow-x: auto; padding: 4px 2px; max-width: 100%; scrollbar-width: thin; }
+.period-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px 2px;
+  max-width: 100%;
+  scrollbar-width: thin;
+  scroll-behavior: smooth;
+}
+/* 年模式：固定 2 行 2 列展示，切换月/年高度稳定不跳动 */
+.period-chips.mode-year {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  overflow-x: visible;
+}
+.period-chips.mode-year .chip {
+  text-align: center;
+  padding: 6px 14px;
+}
 .chip { flex-shrink: 0; border: 1px solid var(--border); background: transparent; color: var(--text-2); padding: 5px 14px; border-radius: 999px; cursor: pointer; font-size: 13px; transition: all .15s; }
 .chip:hover { border-color: var(--primary); color: var(--text); }
 .chip.on { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
