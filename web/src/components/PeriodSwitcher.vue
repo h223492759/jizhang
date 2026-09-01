@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch, nextTick, onMounted } from "vue";
+import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from "vue";
 import dayjs from "dayjs";
 
 // 月/年快速选择 chips（对齐安卓图表页交互）：
@@ -47,6 +47,9 @@ function pick(v) {
 }
 
 // ---------- 选中项居中（仅月模式横向滚动时需要；年模式 2×2 网格无需滚动） ----------
+// 关键：用「即时定位」（behavior: "instant"）而非平滑动画——
+// 平滑动画容易被异步数据加载/图表重绘导致的布局变化中断，停在半路，
+// 表现就是「进入时没居中」「拉进度条后点选移出画面」。即时定位无动画窗口期。
 const wrapEl = ref(null);
 const chipEls = ref({}); // value -> DOM el
 
@@ -54,20 +57,44 @@ function setChipRef(v, el) {
   if (el) chipEls.value[v] = el;
 }
 
-function centerSelected() {
+function scrollToCenter() {
   if (props.mode !== "month") return;
   const wrap = wrapEl.value;
   if (!wrap) return;
   const el = chipEls.value[props.modelValue];
   if (!el) return;
   const target = el.offsetLeft - (wrap.clientWidth - el.offsetWidth) / 2;
-  wrap.scrollTo({ left: Math.max(0, target), behavior: "smooth" });
+  // clamp 到合法滚动范围（[0, 最大可滚动距离]），避免越界/贴边后偏移
+  const max = Math.max(0, wrap.scrollWidth - wrap.clientWidth);
+  const left = Math.min(Math.max(0, target), max);
+  wrap.scrollTo({ left, behavior: "instant" });
 }
 
-onMounted(() => nextTick(centerSelected));
-watch(() => props.modelValue, () => nextTick(centerSelected));
+// 布局可能未完全就绪（页面数据加载中 / 字体样式未应用 / 容器宽度未定），
+// 双重 rAF + setTimeout 兜底，确保最终一定居中
+function safeCenter() {
+  scrollToCenter();
+  requestAnimationFrame(() => requestAnimationFrame(scrollToCenter));
+  setTimeout(scrollToCenter, 150);
+}
+
+// 容器宽度变化（弹窗打开/窗口缩放/侧栏收起）时重新居中
+let ro = null;
+function setupResizeObserver() {
+  const wrap = wrapEl.value;
+  if (!wrap || typeof ResizeObserver === "undefined") return;
+  ro = new ResizeObserver(() => scrollToCenter());
+  ro.observe(wrap);
+}
+function teardownResizeObserver() {
+  if (ro) { ro.disconnect(); ro = null; }
+}
+
+onMounted(() => { nextTick(safeCenter); setupResizeObserver(); });
+onBeforeUnmount(teardownResizeObserver);
+watch(() => props.modelValue, () => nextTick(safeCenter));
 // 月/年切换后重建渲染，重新居中
-watch(() => props.mode, () => nextTick(centerSelected));
+watch(() => props.mode, () => nextTick(safeCenter));
 </script>
 
 <template>
@@ -92,7 +119,8 @@ watch(() => props.mode, () => nextTick(centerSelected));
   padding: 4px 2px;
   max-width: 100%;
   scrollbar-width: thin;
-  scroll-behavior: smooth;
+  /* 不用 scroll-behavior: smooth —— 居中全部由 JS 即时定位控制，
+     避免 CSS 平滑与 JS 冲突导致动画中途被打断停在半路 */
 }
 /* 年模式：固定 2 行 2 列展示，切换月/年高度稳定不跳动 */
 .period-chips.mode-year {

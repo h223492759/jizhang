@@ -466,6 +466,7 @@ export default { components: { EChart } };
 /* 分类排行（对齐安卓 _catRows：图标 + 名称/百分比 + 金额 + 进度条） */
 .rank-card { margin-top: 16px; }
 .rank-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.rank-head .section-title { margin: 0; }
 .rank-list { display: flex; flex-direction: column; }
 .rank-row { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 10px; cursor: pointer; transition: background .15s; }
 .rank-row:hover { background: var(--surface-2); }
