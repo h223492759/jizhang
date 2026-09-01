@@ -6,9 +6,12 @@ import { useStore } from "../store.js";
 import { toast } from "../toast.js";
 import { resolvePieDetail, resolveBarDetail } from "../lib/statsDetail.js";
 import DateInput from "../components/DateInput.vue";
+import PeriodSwitcher from "../components/PeriodSwitcher.vue";
 
 const store = useStore();
 
+// 类型（支出/收入）与范围（月/年/自定义）：对齐安卓图表页「月/年 + 支出/收入」快速切换
+const type = ref("expense"); // expense | income
 const range = ref("month"); // month | year | custom
 const custom = ref({ start: "", end: "" });
 const year = ref(String(dayjs().year()));
@@ -21,14 +24,6 @@ const attribution = ref([]);
 const daily = ref([]);
 const monthly = ref([]);
 
-// 历史月份快捷选项：当前月 + 有数据的所有月份，倒序
-const monthOptions = computed(() => {
-  const cur = dayjs().format("YYYY-MM");
-  const set = new Set([cur, ...(facets.value.months || [])]);
-  return [...set].sort().reverse();
-});
-const monthLabel = (m) => `${m.slice(0, 4)}年${m.slice(5)}月`;
-
 const period = computed(() => {
   if (range.value === "month") {
     const m = selMonth.value;
@@ -40,16 +35,18 @@ const period = computed(() => {
   return { start: custom.value.start, end: custom.value.end };
 });
 
-// 当前柱状图应展示的年份：月模式跟随 selMonth 的年份；年/自定义模式用 year
+// 每月流水柱状图的年份：月模式跟随 selMonth 的年份；年/自定义模式用 year
 const barYear = computed(() =>
   range.value === 'month' ? (selMonth.value || '').slice(0, 4) : year.value
 );
+
 async function load() {
   const params = period.value;
   const [ov, cat, attr, day] = await Promise.all([
     api.get("/stats/overview", { params }),
-    api.get("/stats/category", { params: { ...params, type: "expense" } }),
-    api.get("/stats/attribution", { params: { ...params, type: "expense" } }),
+    // 分类/归属饼图跟随 支出/收入 切换（安卓图表同样只显示当前类型）
+    api.get("/stats/category", { params: { ...params, type: type.value } }),
+    api.get("/stats/attribution", { params: { ...params, type: type.value } }),
     api.get("/stats/daily", { params }),
   ]);
   overview.value = ov.data;
@@ -59,8 +56,6 @@ async function load() {
   const { data: mon } = await api.get("/stats/monthly", { params: { year: barYear.value } });
   monthly.value = mon;
 }
-// 切换年份时重新拉月度柱状图
-function onYearChange() { load(); }
 
 async function init() {
   const { data } = await api.get("/stats/facets");
@@ -72,6 +67,10 @@ async function init() {
 init();
 
 const PALETTE = ["#6366f1","#ef4444","#f59e0b","#10b981","#3b82f6","#ec4899","#8b5cf6","#14b8a6","#f97316","#64748b"];
+
+// 饼图标题随 支出/收入 切换（数据源也已切换）
+const catTitle = computed(() => (type.value === "income" ? "收入分类" : "支出分类"));
+const attrTitle = computed(() => (type.value === "income" ? "收入归属" : "消费归属"));
 
 // 饼图标题即 series.name，点击时 params.seriesName 才能命中维度映射
 // colorMap：可选 { 名称: 颜色 }，用于按用户颜色给归属饼图上色
@@ -159,27 +158,21 @@ const monthlyOpt = computed(() => ({
 
 function fmt(n) { return "¥" + Number(n||0).toLocaleString("zh-CN",{minimumFractionDigits:2,maximumFractionDigits:2}); }
 
-// 日期支持「20260813」整串输入，自动补全为 YYYY-MM-DD（与其它日期框统一）
-function normDate(s) {
-  if (!s) return "";
-  s = String(s).trim();
-  const m = s.replace(/\D/g, "");
-  if (m.length === 8) return `${m.slice(0, 4)}-${m.slice(4, 6)}-${m.slice(6, 8)}`;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  return "";
-}
 function catIcon(name) {
   return store.categories.find((c) => c.name === name)?.icon || "💰";
 }
 
-// ---------------- 图表点击 → 查看明细 ----------------
-const detail = ref({ open: false, title: "", rows: [], total: 0, loading: false });
+// ---------------- 图表点击 → 明细弹窗（弹窗内可快速切换 支出/收入 + 月/年） ----------------
+const detail = ref({ open: false, rows: [], total: 0, loading: false, dim: "", name: "" });
+const detailType = ref("expense");
+const detailRange = ref("month"); // month | year
+const detailMonth = ref(dayjs().format("YYYY-MM"));
+const detailYear = ref(String(dayjs().year()));
 const sortField = ref("amount"); // amount | time
 const sortOrder = ref("desc");   // desc | asc
 
-// 图表重渲染 key：切换时间段时强制重建（否则 ECharts 会卡在旧选中状态）
-const chartKey = computed(() => `${period.value.start}|${period.value.end}`);
-// 饼图 ref（用于"全部取消标注"）
+// 图表重渲染 key：切换时间段/类型时强制重建（否则 ECharts 会卡在旧选中状态）
+const chartKey = computed(() => `${period.value.start}|${period.value.end}|${type.value}`);
 const pieChart = ref(null);
 const attrChart = ref(null);
 function clearPieLegend() { pieChart.value?.deselectAll(); }
@@ -187,23 +180,59 @@ function clearAttrLegend() { attrChart.value?.deselectAll(); }
 
 // 饼图：按维度（分类/归属人）查看明细
 async function onPieClick(params) {
-  const r = resolvePieDetail(params, period.value);
+  const r = resolvePieDetail(params, period.value, type.value);
   if (!r) return;
-  await openDetail(r.title, r.query);
+  await openDetail(r.query, r.dim, r.name);
 }
 // 柱状图：按某月 + 收/支 查看明细
 async function onBarClick(params) {
   const r = resolveBarDetail(params, monthly.value);
   if (!r) return;
-  await openDetail(r.title, r.query);
+  await openDetail(r.query, "", "");
 }
 
-async function openDetail(title, query) {
-  detail.value = { open: true, title, rows: [], total: 0, loading: true };
+// 弹窗内查询周期（月/年快速切换用）
+const detailPeriod = computed(() => {
+  if (detailRange.value === "year") {
+    return { start: `${detailYear.value}-01-01`, end: `${detailYear.value}-12-31` };
+  }
+  const m = detailMonth.value;
+  return { start: `${m}-01`, end: dayjs(`${m}-01`).endOf("month").format("YYYY-MM-DD") };
+});
+
+// 弹窗标题动态生成：维度 · 周期 · 类型
+function detailTitle() {
+  const t = detailType.value === "income" ? "收入" : "支出";
+  const p = detailRange.value === "year"
+    ? `${detailYear.value}年`
+    : `${detailMonth.value.slice(0, 4)}年${Number(detailMonth.value.slice(5))}月`;
+  const base = detail.value.name ? `${detail.value.name}（按${detail.value.dim === "category" ? "分类" : "归属人"}）` : "全部流水";
+  return `${base} · ${p} ${t}`;
+}
+
+async function openDetail(query, dim, name) {
+  // 弹窗初始状态继承主页面当前选择（自定义范围在弹窗内按月模式起步）
+  detail.value = { open: true, rows: [], total: 0, loading: false, dim: dim || "", name: name || "" };
+  detailType.value = query?.type || type.value;
+  detailRange.value = range.value === "year" ? "year" : "month";
+  detailMonth.value = selMonth.value;
+  detailYear.value = year.value;
   sortField.value = "amount";
   sortOrder.value = "asc"; // 点击图表默认按金额升序
+  await fetchDetail();
+}
+
+async function fetchDetail() {
+  if (!detail.value.open) return;
+  detail.value.loading = true;
+  const q = {
+    ...detailPeriod.value,
+    type: detailType.value,
+    pageSize: 300,
+  };
+  if (detail.value.dim && detail.value.name) q[detail.value.dim] = detail.value.name;
   try {
-    const { data } = await api.get("/flows", { params: query });
+    const { data } = await api.get("/flows", { params: q });
     detail.value.rows = data.list;
     detail.value.total = data.total;
   } catch (e) {
@@ -246,20 +275,24 @@ function ownerShort(name) {
   <div>
     <h2 class="page-title">统计分析</h2>
 
-    <!-- 时间范围 -->
+    <!-- 范围 + 类型 快速切换（对齐安卓图表：月/年 + 支出/收入） -->
     <div class="card range">
       <div class="seg">
-        <button :class="{on:range==='month'}" @click="range='month';load()">指定月份</button>
-        <button :class="{on:range==='year'}" @click="range='year';load()">本年</button>
+        <button :class="{on:range==='month'}" @click="range='month';load()">月</button>
+        <button :class="{on:range==='year'}" @click="range='year';load()">年</button>
         <button :class="{on:range==='custom'}" @click="range='custom'">自定义</button>
       </div>
-      <select v-if="range==='month'" class="select" style="width:auto" v-model="selMonth" @change="load">
-        <option v-for="m in monthOptions" :key="m" :value="m">{{ monthLabel(m) }}</option>
-      </select>
-      <select v-if="range==='year'" class="select" style="width:auto" v-model="year" @change="onYearChange">
-        <option v-for="y in (facets.years.length?facets.years:[year])" :key="y" :value="y">{{ y }}年</option>
-      </select>
-      <template v-if="range==='custom'">
+      <div class="seg">
+        <button :class="{on:type==='expense'}" @click="type='expense';load()">支出</button>
+        <button :class="{on:type==='income'}" @click="type='income';load()">收入</button>
+      </div>
+      <template v-if="range==='month'">
+        <PeriodSwitcher mode="month" :model-value="selMonth" @update:model-value="selMonth=$event;load()" />
+      </template>
+      <template v-else-if="range==='year'">
+        <PeriodSwitcher mode="year" :model-value="year" @update:model-value="year=$event;load()" />
+      </template>
+      <template v-else>
         <DateInput v-model="custom.start" />
         <span class="muted">至</span>
         <DateInput v-model="custom.end" />
@@ -281,15 +314,15 @@ function ownerShort(name) {
           <span class="muted small">💡 点击饼图扇区或下方标注查看明细</span>
           <button v-if="category.length" class="btn btn-mini clear-btn" @click="clearPieLegend">全部取消</button>
         </div>
-        <EChart ref="pieChart" :key="'pie-' + chartKey" :option="pie('支出分类', category)" v-if="category.length" @click="onPieClick" :height="'430px'" />
-        <div v-if="!category.length" class="empty muted">暂无支出数据</div>
+        <EChart ref="pieChart" :key="'pie-' + chartKey" :option="pie(catTitle, category)" v-if="category.length" @click="onPieClick" :height="'430px'" />
+        <div v-if="!category.length" class="empty muted">暂无{{ type==='income'?'收入':'支出' }}数据</div>
       </div>
       <div class="card">
         <div class="chart-toolbar">
           <span class="muted small">💡 点击饼图扇区或下方标注查看明细</span>
           <button v-if="attribution.length" class="btn btn-mini clear-btn" @click="clearAttrLegend">全部取消</button>
         </div>
-        <EChart ref="attrChart" :key="'attr-' + chartKey" :option="pie('消费归属', attribution, attrColorMap)" v-if="attribution.length" @click="onPieClick" :height="'430px'" />
+        <EChart ref="attrChart" :key="'attr-' + chartKey" :option="pie(attrTitle, attribution, attrColorMap)" v-if="attribution.length" @click="onPieClick" :height="'430px'" />
         <div v-if="!attribution.length" class="empty muted">暂无数据</div>
       </div>
       <div class="card daily-card">
@@ -299,16 +332,11 @@ function ownerShort(name) {
       </div>
     </div>
 
-    <div class="card" style="margin-top:16px">
-      <div class="section-title">{{ barYear }} 年每月流水</div>
-      <EChart :key="'monthly-' + barYear" :option="monthlyOpt" :height="'320px'" @click="onBarClick" />
-    </div>
-
-    <!-- 饼图 / 柱形点击后的明细弹窗 -->
+    <!-- 明细弹窗（支持弹窗内快速切换 支出/收入 + 月/年） -->
     <div v-if="detail.open" class="modal-mask" @click.self="detail.open=false">
       <div class="modal">
         <div class="modal-head">
-          <b>{{ detail.title }}</b>
+          <b>{{ detailTitle() }}</b>
           <span class="muted">共 {{ detail.total }} 笔 · 合计 {{ fmt(detailSum) }}</span>
           <div class="seg sm">
             <button :class="{on:sortField==='amount'}" @click="sortField='amount'">按金额</button>
@@ -316,6 +344,28 @@ function ownerShort(name) {
             <button @click="sortOrder = sortOrder==='desc'?'asc':'desc'">{{ sortOrder==='desc'?'↓ 降序':'↑ 升序' }}</button>
           </div>
           <button class="btn btn-sm" @click="detail.open=false">关闭</button>
+        </div>
+        <div class="modal-filter">
+          <div class="seg sm">
+            <button :class="{on:detailType==='expense'}" @click="detailType='expense';fetchDetail()">支出</button>
+            <button :class="{on:detailType==='income'}" @click="detailType='income';fetchDetail()">收入</button>
+          </div>
+          <div class="seg sm">
+            <button :class="{on:detailRange==='month'}" @click="detailRange='month';fetchDetail()">月</button>
+            <button :class="{on:detailRange==='year'}" @click="detailRange='year';fetchDetail()">年</button>
+          </div>
+          <PeriodSwitcher
+            v-if="detailRange==='month'"
+            mode="month"
+            :model-value="detailMonth"
+            @update:model-value="detailMonth=$event;fetchDetail()"
+          />
+          <PeriodSwitcher
+            v-else
+            mode="year"
+            :model-value="detailYear"
+            @update:model-value="detailYear=$event;fetchDetail()"
+          />
         </div>
         <div class="modal-body">
           <div v-if="detail.loading" class="muted" style="padding:24px;text-align:center">加载中…</div>
@@ -347,6 +397,12 @@ function ownerShort(name) {
         </div>
       </div>
     </div>
+
+    <!-- XX 年每月流水（用户要求移到页面最下面） -->
+    <div class="card" style="margin-top:16px">
+      <div class="section-title">{{ barYear }} 年每月流水</div>
+      <EChart :key="'monthly-' + barYear" :option="monthlyOpt" :height="'320px'" @click="onBarClick" />
+    </div>
   </div>
 </template>
 
@@ -374,6 +430,7 @@ export default { components: { EChart } };
 .modal { background: var(--surface); color: var(--text); width: min(1100px, 100%); max-width: min(1100px, 100%); max-height: 88vh; border-radius: 14px; display: flex; flex-direction: column; box-shadow: var(--shadow); overflow: hidden; }
 .modal-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--surface-2); flex-wrap: wrap; }
 .modal-head .muted { font-size: 13px; }
+.modal-filter { display: flex; align-items: center; gap: 10px; padding: 10px 16px 6px; flex-wrap: wrap; }
 .seg.sm { padding: 2px; }
 .seg.sm button { padding: 4px 10px; font-size: 12px; border-radius: 6px; }
 .modal-head .btn { margin-left: auto; }
