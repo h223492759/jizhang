@@ -46,10 +46,9 @@ function pick(v) {
   if (v !== props.modelValue) emit("update:modelValue", v);
 }
 
-// ---------- 选中项居中（仅月模式横向滚动时需要；年模式 2×2 网格无需滚动） ----------
-// 关键：用「即时定位」（behavior: "instant"）而非平滑动画——
-// 平滑动画容易被异步数据加载/图表重绘导致的布局变化中断，停在半路，
-// 表现就是「进入时没居中」「拉进度条后点选移出画面」。即时定位无动画窗口期。
+// ---------- 选中项居中（月/年 chips 横向滚动均适用） ----------
+// 历史教训：平滑动画容易被异步数据加载/图表重绘导致的布局变化中断，停在半路，
+// 表现就是「进入时没居中」「拉进度条后点选移出画面」——故统一用 JS 即时定位。
 const wrapEl = ref(null);
 const chipEls = ref({}); // value -> DOM el
 
@@ -58,16 +57,23 @@ function setChipRef(v, el) {
 }
 
 function scrollToCenter() {
-  if (props.mode !== "month") return;
   const wrap = wrapEl.value;
   if (!wrap) return;
   const el = chipEls.value[props.modelValue];
   if (!el) return;
-  const target = el.offsetLeft - (wrap.clientWidth - el.offsetWidth) / 2;
+  // 关键：不能用 el.offsetLeft —— 它相对最近定位祖先（通常是 body），
+  // 当 chips 换行到第二行 / 位于弹窗内（容器远离页面左缘）时会把容器自身
+  // 的页面偏移算进去，导致居中目标整体偏掉（"选择月不居中"反复出现的主因）。
+  // 改用 getBoundingClientRect 差值：两个都是视口坐标，差值即相对滚动容器
+  // 内容左缘的位置，与 offsetParent 无关，任何布局下都精确。
+  const rel = el.getBoundingClientRect().left - wrap.getBoundingClientRect().left + wrap.scrollLeft;
+  const target = rel - (wrap.clientWidth - el.offsetWidth) / 2;
   // clamp 到合法滚动范围（[0, 最大可滚动距离]），避免越界/贴边后偏移
   const max = Math.max(0, wrap.scrollWidth - wrap.clientWidth);
   const left = Math.min(Math.max(0, target), max);
-  wrap.scrollTo({ left, behavior: "instant" });
+  // 直接赋值 scrollLeft：即时生效、兼容性最广（scrollTo 的 behavior:"instant"
+  // 非标准枚举，个别环境可能被忽略）
+  wrap.scrollLeft = left;
 }
 
 // 布局可能未完全就绪（页面数据加载中 / 字体样式未应用 / 容器宽度未定），
