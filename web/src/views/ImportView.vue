@@ -136,7 +136,7 @@ async function exportCsv() {
           f.type === "income" ? "收入" : "支出",
           Number(f.amount || 0).toFixed(2),
           f.category || "",
-          f.description || "",
+          f.description || f.category || "",
           f.payment_method || "",
           f.attribution || "",
         ]

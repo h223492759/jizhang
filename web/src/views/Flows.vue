@@ -251,7 +251,7 @@ function freqText(t) {
     <div class="head-row">
       <h2 class="page-title" style="margin:0">流水记录</h2>
       <div class="row" style="gap:8px">
-        <button class="btn btn-sm" v-if="tab==='flows'" @click="searchOpen = true">🔍 搜索流水</button>
+        <button class="btn btn-primary" v-if="tab==='flows'" @click="searchOpen = true">🔍 搜索流水</button>
         <button class="btn btn-primary" v-if="tab==='flows'" @click="add">＋ 记一笔</button>
       </div>
     </div>
@@ -333,7 +333,7 @@ function freqText(t) {
             <td><span class="ic">{{ catIcon(f.category) }}</span>{{ f.category }}</td>
             <td class="hide-mobile muted">
               <span v-if="f.source === 'ai'" class="ai-tag" title="AI 记账">AI</span>
-              {{ f.description || "—" }}
+              {{ f.description || f.category }}
             </td>
             <td class="hide-mobile muted">{{ dayjs(f.flow_time).format("YYYY-MM-DD") }}</td>
             <td class="hide-mobile">

@@ -87,7 +87,7 @@ function catIcon(name) {
     <div class="head-row">
       <h2 class="page-title" style="margin:0">你好，{{ store.user?.nickname }} 👋</h2>
       <div class="row" style="gap:8px">
-        <button class="btn btn-sm" @click="searchOpen = true">🔍 搜索流水</button>
+        <button class="btn btn-primary" @click="searchOpen = true">🔍 搜索流水</button>
         <button class="btn btn-primary" @click="preset=null; showDialog=true">＋ 记一笔</button>
       </div>
     </div>

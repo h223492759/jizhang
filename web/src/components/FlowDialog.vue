@@ -213,6 +213,8 @@ async function save() {
   saving.value = true;
   try {
     const payload = { ...form.value, amount: Number(form.value.amount) };
+    // 名称留空 → 自动用分类名（与占位提示「留空则自动用分类名」一致）
+    payload.description = (payload.description || "").trim() || payload.category || "";
     if (props.flow?.id) {
       await api.put(`/flows/${props.flow.id}`, payload);
       toast("已更新");

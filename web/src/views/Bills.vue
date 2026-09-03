@@ -314,7 +314,7 @@ const maxAbs = computed(() => Math.max(1, ...rows.value.map((r) => Math.abs(r.ba
                   <td class="muted">{{ (e.flow_time || '').slice(0, 10) }}</td>
                   <td>{{ e.category }}</td>
                   <td class="num expense">{{ mdFmt(e.amount) }}</td>
-                  <td class="muted">{{ e.description || '—' }}</td>
+                  <td class="muted">{{ e.description || e.category }}</td>
                 </tr>
               </tbody>
             </table>
@@ -353,7 +353,7 @@ const maxAbs = computed(() => Math.max(1, ...rows.value.map((r) => Math.abs(r.ba
                   <td class="muted">{{ (e.flow_time || '').slice(0, 10) }}</td>
                   <td>{{ e.category }}</td>
                   <td class="num income">{{ mdFmt(e.amount) }}</td>
-                  <td class="muted">{{ e.description || '—' }}</td>
+                  <td class="muted">{{ e.description || e.category }}</td>
                 </tr>
               </tbody>
             </table>

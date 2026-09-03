@@ -34,6 +34,20 @@ ensureAdmin();
 ensureDefaultCategoriesForAllBooks();
 applyCanonicalCategoryOrder();
 
+// 存量流水名称补齐：历史数据 description 留空 → 自动补为该笔的分类名（幂等，可重复执行）
+// 与前端「名称留空自动用分类名」语义一致；新写入侧由 FlowDialog 提交前兜底。
+try {
+  const r = db
+    .prepare(
+      "UPDATE flows SET description = category WHERE description IS NULL OR TRIM(description) = ''"
+    )
+    .run();
+  if (r.changes > 0)
+    console.log(`[migrate] 已为 ${r.changes} 笔空名称流水补齐分类名`);
+} catch (e) {
+  console.warn("[migrate] 名称补齐失败:", e.message);
+}
+
 // 启动时把到期待生成的定期记账补成真实流水（防重：同一周期只生成一次）
 for (const b of db.prepare("SELECT id FROM books").all()) {
   try {

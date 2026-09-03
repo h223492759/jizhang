@@ -295,7 +295,7 @@ async function onRankClick(name) {
   <div>
     <div class="head-row">
       <h2 class="page-title" style="margin:0">统计分析</h2>
-      <button class="btn btn-primary btn-sm" @click="searchOpen = true">🔍 搜索流水</button>
+      <button class="btn btn-primary" @click="searchOpen = true">🔍 搜索流水</button>
     </div>
 
     <!-- 范围 + 类型 快速切换（对齐安卓图表：月/年 + 支出/收入） -->
