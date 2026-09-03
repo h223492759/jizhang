@@ -7,8 +7,12 @@ import { toast } from "../toast.js";
 import { resolvePieDetail, resolveBarDetail } from "../lib/statsDetail.js";
 import DateInput from "../components/DateInput.vue";
 import PeriodSwitcher from "../components/PeriodSwitcher.vue";
+import SearchFlowsDialog from "../components/SearchFlowsDialog.vue";
 
 const store = useStore();
+
+// 顶部「🔍 搜索流水」弹窗（关键字搜全部 / 按现有月年交互筛范围）
+const searchOpen = ref(false);
 
 // 类型（支出/收入）与范围（月/年/自定义）：对齐安卓图表页「月/年 + 支出/收入」快速切换
 const type = ref("expense"); // expense | income
@@ -289,7 +293,10 @@ async function onRankClick(name) {
 
 <template>
   <div>
-    <h2 class="page-title">统计分析</h2>
+    <div class="head-row">
+      <h2 class="page-title" style="margin:0">统计分析</h2>
+      <button class="btn btn-primary btn-sm" @click="searchOpen = true">🔍 搜索流水</button>
+    </div>
 
     <!-- 范围 + 类型 快速切换（对齐安卓图表：月/年 + 支出/收入） -->
     <div class="card range">
@@ -440,6 +447,9 @@ async function onRankClick(name) {
       <div class="section-title">{{ barYear }} 年每月流水</div>
       <EChart :key="'monthly-' + barYear" :option="monthlyOpt" :height="'320px'" @click="onBarClick" />
     </div>
+
+    <!-- 关键字搜索流水弹窗 -->
+    <SearchFlowsDialog v-model:show="searchOpen" />
   </div>
 </template>
 
@@ -449,6 +459,7 @@ export default { components: { EChart } };
 </script>
 
 <style scoped>
+.head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .range { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .seg { display: inline-flex; background: var(--surface-2); border-radius: 10px; padding: 4px; }
 .seg button { border: none; background: transparent; padding: 7px 16px; border-radius: 7px; cursor: pointer; color: var(--text-2); }
