@@ -102,7 +102,7 @@ async function confirm() {
   }
 }
 
-// 数据导出
+// 数据导出（JSON 全量备份：流水+分类+预算，可回导迁移）
 async function exportData() {
   try {
     const { data } = await api.get("/import/export");
@@ -112,6 +112,45 @@ async function exportData() {
     a.download = `${data.book || "账本"}_${dayjs().format("YYYYMMDD_HHmm")}.json`;
     a.click();
     toast("已导出");
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+// 账本备份 → 导出 CSV（全部流水，Excel 可直接打开；迁移仍建议用上方 JSON 完整备份）
+async function exportCsv() {
+  try {
+    const { data } = await api.get("/import/export");
+    const rows = data.flows || [];
+    // CSV 字段转义（含逗号/引号/换行时用双引号包裹，内部引号翻倍）
+    const esc = (v) => {
+      const s = v == null ? "" : String(v);
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const head = ["时间", "类型", "金额", "分类", "名称", "支付方式", "归属人"];
+    const lines = [head.join(",")];
+    for (const f of rows) {
+      lines.push(
+        [
+          f.flow_time || "",
+          f.type === "income" ? "收入" : "支出",
+          Number(f.amount || 0).toFixed(2),
+          f.category || "",
+          f.description || "",
+          f.payment_method || "",
+          f.attribution || "",
+        ]
+          .map(esc)
+          .join(",")
+      );
+    }
+    // BOM 前缀让 Excel 正确识别 UTF-8 中文
+    const blob = new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${data.book || "账本"}_流水_${dayjs().format("YYYYMMDD_HHmm")}.csv`;
+    a.click();
+    toast(`已导出 ${rows.length} 条为 CSV`);
   } catch (e) {
     toast(e.message);
   }
@@ -237,9 +276,12 @@ const displayItems = computed(() => {
 
     <div class="card" style="margin-top:16px">
       <div class="section-title">💾 账本数据备份</div>
-      <p class="muted" style="margin-top:-4px;font-size:13px">导出当前账本全部数据为 JSON，可用于备份或迁移到其它账本。</p>
+      <p class="muted" style="margin-top:-4px;font-size:13px">
+        导出当前账本全部数据：<b>JSON</b> 完整备份（流水 + 分类 + 预算，可回导到其它账本）；<b>CSV</b> 导出全部流水（Excel 可直接打开，便于留档/对账）。
+      </p>
       <div class="row">
-        <button class="btn" @click="exportData">导出当前账本</button>
+        <button class="btn" @click="exportData">导出 JSON 备份</button>
+        <button class="btn" @click="exportCsv">导出 CSV 流水</button>
         <label class="btn">导入JSON到当前账本<input type="file" accept=".json" style="display:none" @change="importData" /></label>
       </div>
     </div>

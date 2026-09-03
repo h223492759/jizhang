@@ -110,5 +110,5 @@ if (fs.existsSync(webDist)) {
 
 const PORT = Number(process.env.PORT) || 9600;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Cashbook 服务已启动: http://0.0.0.0:${PORT}`);
+  console.log(`Jizhang 服务已启动: http://0.0.0.0:${PORT}`);
 });

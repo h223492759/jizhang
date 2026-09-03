@@ -5,6 +5,7 @@ import api from "../api.js";
 import { useStore } from "../store.js";
 import { toast } from "../toast.js";
 import FlowDialog from "../components/FlowDialog.vue";
+import SearchFlowsDialog from "../components/SearchFlowsDialog.vue";
 
 const store = useStore();
 const month = ref(dayjs().format("YYYY-MM"));
@@ -13,6 +14,8 @@ const calendar = ref({});
 const recent = ref([]);
 const showDialog = ref(false);
 const preset = ref(null);
+// 「🔍 搜索流水」弹窗（关键字搜全部流水，顶部可切月/年收窄，复用统计页组件）
+const searchOpen = ref(false);
 
 // 共享账本：按归属人拆分「我 / 其他成员」的记账笔数（导入的也计入 count）
 const isShared = computed(() => (store.currentBook?.members || 0) > 1);
@@ -83,7 +86,10 @@ function catIcon(name) {
   <div>
     <div class="head-row">
       <h2 class="page-title" style="margin:0">你好，{{ store.user?.nickname }} 👋</h2>
-      <button class="btn btn-primary" @click="preset=null; showDialog=true">＋ 记一笔</button>
+      <div class="row" style="gap:8px">
+        <button class="btn btn-sm" @click="searchOpen = true">🔍 搜索流水</button>
+        <button class="btn btn-primary" @click="preset=null; showDialog=true">＋ 记一笔</button>
+      </div>
     </div>
 
     <!-- 概览卡片 -->
@@ -163,6 +169,7 @@ function catIcon(name) {
     </div>
 
     <FlowDialog v-model="showDialog" :preset="preset" @saved="onSaved" />
+    <SearchFlowsDialog v-model:show="searchOpen" />
   </div>
 </template>
 

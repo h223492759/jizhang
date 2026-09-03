@@ -5,6 +5,7 @@ import api from "../api.js";
 import { useStore } from "../store.js";
 import { toast } from "../toast.js";
 import FlowDialog from "../components/FlowDialog.vue";
+import SearchFlowsDialog from "../components/SearchFlowsDialog.vue";
 
 const store = useStore();
 const filter = ref({ start: "", end: "", type: "", category: "", attribution: "", keyword: "" });
@@ -14,6 +15,8 @@ const pageSize = 20;
 const facets = ref({ years: [], attributions: [] });
 const showDialog = ref(false);
 const editing = ref(null);
+// 「🔍 搜索流水」弹窗（关键字搜全部流水，顶部可切月/年收窄，复用统计页组件）
+const searchOpen = ref(false);
 
 // 排序：金额 / 日期，升序 / 降序
 const sortBy = ref("flow_time");
@@ -247,7 +250,10 @@ function freqText(t) {
   <div>
     <div class="head-row">
       <h2 class="page-title" style="margin:0">流水记录</h2>
-      <button class="btn btn-primary" v-if="tab==='flows'" @click="add">＋ 记一笔</button>
+      <div class="row" style="gap:8px">
+        <button class="btn btn-sm" v-if="tab==='flows'" @click="searchOpen = true">🔍 搜索流水</button>
+        <button class="btn btn-primary" v-if="tab==='flows'" @click="add">＋ 记一笔</button>
+      </div>
     </div>
     <div class="tabs">
       <button :class="{ on: tab==='flows' }" @click="tab='flows'">流水</button>
@@ -486,6 +492,7 @@ function freqText(t) {
     </div>
 
     <FlowDialog v-model="showDialog" :flow="editing" @saved="load" />
+    <SearchFlowsDialog v-model:show="searchOpen" />
   </div>
 </template>
 
