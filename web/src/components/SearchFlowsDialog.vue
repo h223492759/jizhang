@@ -24,6 +24,10 @@ const scope = ref("all"); // all | month | year
 const selMonth = ref(dayjs().format("YYYY-MM"));
 const selYear = ref(String(dayjs().year()));
 
+// 排序（用户要求搜索弹窗也支持「按时间/按金额」+ 升降序，默认按时间倒序 = 最新在上）
+const sortBy = ref("flow_time"); // flow_time | amount（与服务端 /flows 一致）
+const order = ref("desc");       // desc | asc
+
 const rows = ref([]);
 const total = ref(0);
 const sums = ref({ expense: 0, income: 0 });
@@ -55,8 +59,8 @@ async function fetchList(reset = true) {
     keyword: kw.value.trim(),
     page: page.value,
     pageSize: PAGE_SIZE,
-    sortBy: "flow_time",
-    order: "desc",
+    sortBy: sortBy.value,
+    order: order.value,
   };
   try {
     const { data } = await api.get("/flows", { params });
@@ -154,6 +158,12 @@ function ownerBg(c) {
         <div class="sf-title">
           <b>流水「{{ kw.trim() }}」</b>
           <span v-if="searched" class="muted sf-sum">共 {{ total }} 笔 · 支出 {{ fmt(sums.expense) }} · 收入 {{ fmt(sums.income) }}</span>
+        </div>
+        <!-- 排序（与 Stats 详情弹窗一致：按金额 / 按时间 + ↓/↑） -->
+        <div class="seg sm sf-sort">
+          <button :class="{ on: sortBy === 'amount' }" @click="sortBy='amount'; fetchList(true)">按金额</button>
+          <button :class="{ on: sortBy === 'flow_time' }" @click="sortBy='flow_time'; fetchList(true)">按时间</button>
+          <button @click="order = order === 'desc' ? 'asc' : 'desc'; fetchList(true)">{{ order === 'desc' ? '↓ 降序' : '↑ 升序' }}</button>
         </div>
         <div class="head-actions">
           <button class="btn btn-sm" @click="view = 'kw'; nextTick(() => kwInput.value?.focus())">✎ 改关键字</button>

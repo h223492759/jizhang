@@ -5,7 +5,7 @@ import dayjs from "dayjs";
 // 月/年快速选择 chips（对齐安卓图表页交互）：
 // - 月模式：本月 / 上月 / N月（近 3 年，未来月份不显示），横向滚动
 //   且选中项始终居中（进入时居中一次；手动左滑/右滑后点选任意月也自动居中）
-// - 年模式：今年 / 去年 / N年（近 4 年），固定 2 行 2 列展示，切换高度不跳动
+// - 年模式：今年 / 去年 / N年（近 4 年），与月模式一致横向滚动一行
 const props = defineProps({
   mode: { type: String, default: "month" }, // month | year
   modelValue: { type: String, default: "" }, // YYYY-MM（月模式）或 YYYY（年模式）
@@ -122,12 +122,10 @@ watch(() => props.mode, () => nextTick(safeCenter));
   /* 不用 scroll-behavior: smooth —— 居中全部由 JS 即时定位控制，
      避免 CSS 平滑与 JS 冲突导致动画中途被打断停在半路 */
 }
-/* 年模式：固定 2 行 2 列展示，切换月/年高度稳定不跳动 */
+/* 年模式：与月模式一致横向滚动一行（用户要求「年和月一样在第二行，一行显示」），
+   容器窄时与月 chips 一起自动换到 .range 的下一行 */
 .period-chips.mode-year {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
-  overflow-x: visible;
+  overflow-x: auto;
 }
 .period-chips.mode-year .chip {
   text-align: center;
