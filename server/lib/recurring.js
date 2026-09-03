@@ -50,8 +50,8 @@ export function generateDueRecurring(bookId, asOf = new Date()) {
   if (!rows.length) return 0;
 
   const insert = db.prepare(
-    `INSERT INTO flows (book_id, user_id, attribution, attribution_uid, type, amount, category, payment_method, description, flow_time)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`
+    `INSERT INTO flows (book_id, user_id, attribution, attribution_uid, type, amount, category, payment_method, description, flow_time, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now','localtime'))`
   );
   const upd = db.prepare("UPDATE recurring SET next_run=?, last_period=? WHERE id=?");
 

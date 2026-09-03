@@ -48,6 +48,22 @@ try {
   console.warn("[migrate] 名称补齐失败:", e.message);
 }
 
+// 存量流水 updated_at 回填：历史 bug 使定期记账生成的流水漏写 updated_at（NULL），
+// 安卓端增量同步按 updated_at > since 拉取 → NULL 行永远不同步（症状：网页端可见、安卓端缺失，
+// 用户误以为定期记账没生效而手动补记 → 产生重复）。填当前时间而非 created_at：
+// 安卓同步游标已推进到当下，只有比游标新的行才会被下一次增量拉取到。
+try {
+  const r = db
+    .prepare(
+      "UPDATE flows SET updated_at = datetime('now','localtime') WHERE updated_at IS NULL OR TRIM(updated_at) = ''"
+    )
+    .run();
+  if (r.changes > 0)
+    console.log(`[migrate] 已为 ${r.changes} 笔流水回填 updated_at（安卓端将能同步到定期记账流水）`);
+} catch (e) {
+  console.warn("[migrate] updated_at 回填失败:", e.message);
+}
+
 // 启动时把到期待生成的定期记账补成真实流水（防重：同一周期只生成一次）
 for (const b of db.prepare("SELECT id FROM books").all()) {
   try {
