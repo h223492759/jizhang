@@ -84,7 +84,7 @@ async function saveEditFlow() {
 function cancelEdit() { editDlg.value.open = false; }
 
 async function deleteFlowInList(f) {
-  if (!confirm(`删除「${f.description || f.category}」¥${Number(f.amount).toFixed(2)} 这条流水？此操作不可撤销。`)) return;
+  if (!confirm(`删除「${f.description || f.category}」¥${Number(f.amount).toFixed(2)} 这条流水？将移入回收站（左侧导航可恢复）。`)) return;
   try {
     await api.delete(`/flows/${f.id}`);
     toast('已删除');

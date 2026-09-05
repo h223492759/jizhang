@@ -469,13 +469,113 @@ r.put(
   })
 );
 
+// 删除流水 → 先进回收站（flows_trash 快照：谁删的 + 原流水全字段），再物理删除。
+// 共享账本：回收站按账本隔离，全员可见/可恢复；恢复的流水走增量同步回到所有成员。
 r.delete(
   "/:id",
   requireBook,
   wrap((req, res) => {
-    // 先读原值供触发器用，再删除
-    const cur = db.prepare("SELECT * FROM flows WHERE id=? AND book_id=?").get(req.params.id, req.bookId);
-    db.prepare("DELETE FROM flows WHERE id=? AND book_id=?").run(
+    const cur = db
+      .prepare("SELECT * FROM flows WHERE id=? AND book_id=?")
+      .get(req.params.id, req.bookId);
+    if (!cur) return res.json({ ok: true }); // 已删过/不存在，幂等
+    const tx = db.transaction(() => {
+      db.prepare(
+        `INSERT INTO flows_trash (book_id, user_id, attribution, attribution_uid, type, amount,
+                                  category, payment_method, description, flow_time, created_at,
+                                  source, deleted_by, deleted_by_uid)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).run(
+        cur.book_id,
+        cur.user_id,
+        cur.attribution || "",
+        cur.attribution_uid ?? null,
+        cur.type,
+        cur.amount,
+        cur.category || "其他",
+        cur.payment_method || "",
+        cur.description || "",
+        cur.flow_time,
+        cur.created_at || null,
+        cur.source || "",
+        req.user.nickname || req.user.username || "用户",
+        req.user.id
+      );
+      db.prepare("DELETE FROM flows WHERE id=? AND book_id=?").run(
+        req.params.id,
+        req.bookId
+      );
+    });
+    tx();
+    res.json({ ok: true });
+  })
+);
+
+// ==================== 回收站 ====================
+
+// 回收站列表（按删除时间倒序；删除人 = 昵称，共享账本里能看出是谁删的）
+r.get(
+  "/trash",
+  requireBook,
+  wrap((req, res) => {
+    const limit = Math.min(Number(req.query.limit) || 200, 500);
+    const list = db
+      .prepare(
+        `SELECT t.id, t.type, t.amount, t.category, t.description, t.payment_method,
+                t.flow_time, t.deleted_by, t.deleted_by_uid, t.deleted_at,
+                COALESCE(u.nickname, t.attribution) AS attribution
+           FROM flows_trash t
+           LEFT JOIN users u ON u.id = t.attribution_uid
+          WHERE t.book_id = ?
+          ORDER BY t.deleted_at DESC, t.id DESC
+          LIMIT ?`
+      )
+      .all(req.bookId, limit);
+    res.json({ list });
+  })
+);
+
+// 恢复：把快照插回 flows（新 id + updated_at=now → 增量同步到所有成员；client_uuid 置空避免幂等冲突）
+r.post(
+  "/trash/:id/restore",
+  requireBook,
+  wrap((req, res) => {
+    const t = db
+      .prepare("SELECT * FROM flows_trash WHERE id=? AND book_id=?")
+      .get(req.params.id, req.bookId);
+    if (!t) return res.status(404).json({ error: "回收站中不存在该记录" });
+    const tx = db.transaction(() => {
+      db.prepare(
+        `INSERT INTO flows (book_id, user_id, attribution, attribution_uid, type, amount, category,
+                            payment_method, description, flow_time, source, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','localtime'))`
+      ).run(
+        t.book_id,
+        t.user_id,
+        t.attribution || "",
+        t.attribution_uid ?? null,
+        t.type,
+        t.amount,
+        t.category || "其他",
+        t.payment_method || "",
+        t.description || "",
+        t.flow_time,
+        t.source || "",
+        t.created_at || null
+      );
+      db.prepare("DELETE FROM flows_trash WHERE id=?").run(t.id);
+    });
+    tx();
+    res.json({ ok: true });
+  })
+);
+
+// 彻底删除（从回收站清除，不可再恢复）
+r.delete(
+  "/trash/:id",
+  requireBook,
+  wrap((req, res) => {
+    db.prepare("DELETE FROM flows_trash WHERE id=? AND book_id=?").run(
       req.params.id,
       req.bookId
     );

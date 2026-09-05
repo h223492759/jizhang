@@ -43,10 +43,10 @@ async function openDup() {
   }
 }
 async function delDupItem(g, item) {
-  if (!confirm("删除这条重复记录？")) return;
+  if (!confirm("删除这条重复记录？（将移入回收站，可在左侧「回收站」恢复）")) return;
   try {
     await api.delete(`/flows/${item.id}`);
-    toast("已删除");
+    toast("已移入回收站");
     g.items = g.items.filter((x) => x.id !== item.id);
     g.count--;
     dupGroups.value = dupGroups.value.filter((x) => x.items.length > 1);
@@ -130,10 +130,10 @@ function add() {
   showDialog.value = true;
 }
 async function del(f) {
-  if (!confirm(`确定删除这条「${f.category} ${f.amount}」记录吗？`)) return;
+  if (!confirm(`确定删除这条「${f.category} ${f.amount}」记录吗？将移入回收站，可在左侧「回收站」恢复。`)) return;
   try {
     await api.delete(`/flows/${f.id}`);
-    toast("已删除");
+    toast("已移入回收站");
     load();
   } catch (e) {
     toast(e.message);

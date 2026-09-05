@@ -20,6 +20,7 @@ const allNav = [
   { name: "budgets", label: "预算", icon: "🎯" },
   { name: "ai", label: "AI记账", icon: "✨" },
   { name: "import", label: "导入", icon: "📥" },
+  { name: "trash", label: "回收站", icon: "🗑️" },
   { name: "books", label: "账本", icon: "📚" },
   { name: "categories", label: "分类", icon: "🏷️" },
   { name: "presets", label: "常用名称", icon: "🔖" },

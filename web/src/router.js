@@ -13,6 +13,7 @@ const routes = [
       { path: "budgets", name: "budgets", component: () => import("./views/Budgets.vue") },
       { path: "ai", name: "ai", component: () => import("./views/AiView.vue") },
       { path: "import", name: "import", component: () => import("./views/ImportView.vue") },
+      { path: "trash", name: "trash", component: () => import("./views/Trash.vue") },
       { path: "books", name: "books", component: () => import("./views/Books.vue") },
       { path: "categories", name: "categories", component: () => import("./views/Categories.vue") },
       { path: "presets", name: "presets", component: () => import("./views/Presets.vue") },

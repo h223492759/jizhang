@@ -71,6 +71,28 @@ CREATE TABLE IF NOT EXISTS flows (
 );
 CREATE INDEX IF NOT EXISTS idx_flows_book_time ON flows(book_id, flow_time);
 
+-- 流水回收站：删除的流水快照（含删除人/删除时间）。按账本隔离、共享账本全员可见可恢复；
+-- 恢复 = 插回 flows（走增量同步到所有成员），彻底删除 = 清掉快照。
+CREATE TABLE IF NOT EXISTS flows_trash (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  book_id         INTEGER NOT NULL,
+  user_id         INTEGER NOT NULL,
+  attribution     TEXT NOT NULL DEFAULT '',
+  attribution_uid INTEGER,
+  type            TEXT NOT NULL,
+  amount          REAL NOT NULL,
+  category        TEXT NOT NULL DEFAULT '其他',
+  payment_method  TEXT NOT NULL DEFAULT '',
+  description     TEXT NOT NULL DEFAULT '',
+  flow_time       TEXT NOT NULL,
+  created_at      TEXT,
+  source          TEXT NOT NULL DEFAULT '',
+  deleted_by      TEXT NOT NULL DEFAULT '',  -- 删除人（昵称，共享账本记谁删的）
+  deleted_by_uid  INTEGER,                   -- 删除人 uid
+  deleted_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_trash_book ON flows_trash(book_id, deleted_at);
+
 CREATE TABLE IF NOT EXISTS budgets (
   id       INTEGER PRIMARY KEY AUTOINCREMENT,
   book_id  INTEGER NOT NULL,
