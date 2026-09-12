@@ -24,6 +24,8 @@ const months = ref([]);
 const years = ref([]);
 // v260910：规则起点前年份不可切换（翻年下限 = /years 升序首年；无数据时 null 不限）
 const minYear = ref(null);
+// v260913：翻年上限 = 当前年（未来年份不可切换）
+const maxYear = computed(() => new Date().getFullYear());
 const rules = ref([]);
 const records = ref([]);
 const scanning = ref(false);
@@ -58,11 +60,11 @@ const tierText = (tier) =>
   tier >= 3 ? "第3档" : tier === 2 ? "第2档" : "";
 
 // ---------------- 趋势图（v2.2.13：取消档位虚线；物业=金额(均摊)柱 / 水电气=用量柱；柱按行 tier 着色） ----------------
-// 按月视图：当年有账单的月份（按 type 选柱字段）；按年视图：历年汇总
+// 按月视图：显示该年 1-12 月**完整**（无数据/未到的月份留空柱，v260913 用户要求）；按年视图：历年汇总
 const chartRows = computed(() =>
   viewMode.value === "year"
     ? years.value.filter((y) => y.hasBill)
-    : months.value.filter((m) => m.hasBill)
+    : months.value
 );
 const isProperty = computed(() => segType.value === "property");
 const chartUnit = computed(() => curType.value.unit);
@@ -109,6 +111,10 @@ const chartOpt = computed(() => {
         const i = ps[0]?.dataIndex ?? 0;
         const r = rows[i];
         let s = `<b>${labels[i]}</b><br/>`;
+        // v260913：整年展示后，无数据月份柱值为 0 → 提示「无数据」
+        if (!values[i]) {
+          return s + '<span style="color:#9ca3af">无数据</span>';
+        }
         // 物业=均摊月金额；水电气=均摊用量
         if (isProperty.value) {
           s += `${ps[0].marker} 金额：¥${Number(colValueOf(r)).toFixed(2)}`;
@@ -193,10 +199,11 @@ function switchType(t) {
   refresh();
 }
 function shiftYear(d) {
-  // v260910：规则起点前年份不可切换（下限 = /years 升序首年）；上限同安卓 +3 年
+  // v260910：规则起点前年份不可切换（下限 = /years 升序首年）
+  // v260913：上限改为「当前年」—— 还没到的年份不可切换（箭头同时置灰）
   const next = year.value + d;
   if (next < (minYear.value ?? -9999)) return;
-  if (next > new Date().getFullYear() + 3) return;
+  if (next > maxYear.value) return;
   year.value = next;
   refresh();
 }
@@ -386,7 +393,7 @@ watch(year, refresh);
         <template v-if="viewMode === 'month'">
           <button class="btn btn-sm" :disabled="minYear != null && year <= minYear" @click="shiftYear(-1)">←</button>
           <span class="year-txt">{{ year }} 年</span>
-          <button class="btn btn-sm" @click="shiftYear(1)">→</button>
+          <button class="btn btn-sm" :disabled="year >= maxYear" @click="shiftYear(1)">→</button>
         </template>
         <span class="muted note" style="margin-left: 6px">第2档起橙黄高亮，第3档及以上红色警示</span>
       </div>

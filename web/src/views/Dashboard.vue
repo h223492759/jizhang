@@ -197,13 +197,14 @@ function catIcon(name) {
 .cs-others b { color: var(--text); }
 .cs-row .small { font-size: 12px; }
 .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-.week { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; color: var(--text-2); font-size: 12px; margin-bottom: 6px; }
+.week { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; color: var(--text-2); font-size: 13px; margin-bottom: 6px; }
 .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-.cell { min-height: 58px; border-radius: 8px; padding: 4px; cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+.cell { min-height: 68px; border-radius: 8px; padding: 5px; cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .cell:hover:not(.empty) { background: var(--surface-2); }
 .cell.empty { cursor: default; }
-.dnum { font-size: 12px; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; color: var(--text); }
-.ce, .ci { font-size: 10.5px; line-height: 1.2; }
+/* v260913：消费日历字体放大（用户反馈数字与金额太小） */
+.dnum { font-size: 14px; font-weight: 600; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 7px; color: var(--text); }
+.ce, .ci { font-size: 13px; line-height: 1.25; font-weight: 600; }
 .famt { font-weight: 700; }
 .frow { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
 .frow:first-of-type { border-top: none; }
@@ -215,5 +216,9 @@ function catIcon(name) {
 @media (max-width: 720px) {
   .cards { grid-template-columns: repeat(2, 1fr); }
   .stat .big { font-size: 19px; }
+  /* 窄屏 7 列更挤：日期/金额降一档，仍比原来大 */
+  .cell { min-height: 62px; padding: 4px; }
+  .dnum { font-size: 13px; width: 23px; height: 23px; }
+  .ce, .ci { font-size: 11.5px; }
 }
 </style>
