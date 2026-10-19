@@ -589,7 +589,7 @@ watch(year, refresh);
 .month-row.t3 .col-usage, .month-row.t3 .col-amt { color: var(--expense, #ef4444); }
 .slot { color: transparent; user-select: none; }  /* 占位保持对齐 */
 .pend { font-size: 12px; color: var(--expense, #ef4444); font-weight: 600; }
-.pend.ok { color: #10b981; font-weight: 500; }
+.pend.ok { color: var(--income-strong); font-weight: 500; }
 
 .bill-head { display: flex; justify-content: space-between; gap: 16px; background: var(--surface-2); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; }
 .kv { margin: 3px 0; font-size: 13px; }

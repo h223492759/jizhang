@@ -9,6 +9,8 @@
   --primary-soft: #eef0ff;
   --expense: #ef4444;   /* 支出：红 */
   --income: #10b981;    /* 收入：绿 */
+  --income-strong: #0d9463; /* v1.1.0 文字用加深档：#10b981 在白底仅 2.5:1，不达 AA */
+  --warn-strong: #b45309;   /* v1.1.0 警示文字加深档：#f59e0b 在白底仅 2.2:1 */
   --shadow: 0 1px 3px rgba(20, 20, 50, 0.06), 0 8px 24px rgba(20, 20, 50, 0.05);
   --radius: 14px;
 }
@@ -23,6 +25,8 @@
   --primary-soft: #23263a;
   --expense: #f87171;
   --income: #34d399;
+  --income-strong: #34d399; /* 暗色下原色已达标（≈9:1），文字直接用原色 */
+  --warn-strong: #fbbf24;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 

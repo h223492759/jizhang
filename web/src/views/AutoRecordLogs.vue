@@ -229,9 +229,9 @@ onUnmounted(() => {
   line-height: 1.45;
 }
 .log-body.ok {
-  color: #10b981;
+  color: var(--income-strong);
 }
 .log-body.warn {
-  color: #f59e0b;
+  color: var(--warn-strong);
 }
 </style>

@@ -303,7 +303,7 @@ async function doCopy() {
         <div class="muted" style="margin-top:6px;font-size:13px">
           已使用 {{ data.total.percent }}%
           <span v-if="data.total.percent >= 100" class="expense"> · ⚠️ 已超支！</span>
-          <span v-else-if="data.total.percent >= 80" style="color:#f59e0b"> · 接近预算上限</span>
+          <span v-else-if="data.total.percent >= 80" style="color:var(--warn-strong)"> · 接近预算上限</span>
         </div>
       </template>
       <div v-else class="muted" style="padding:8px 0">尚未设置年度总预算，点右上角设置。</div>
