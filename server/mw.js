@@ -4,12 +4,20 @@ import { db } from "./db.js";
 export const JWT_SECRET =
   process.env.JWT_SECRET || "jizhang-nas-please-change-me";
 
-export function sign(user) {
-  return jwt.sign(
-    { id: user.id, username: user.username, role: user.role, color: user.color },
-    JWT_SECRET,
-    { expiresIn: "30d" }
-  );
+// 签发 token。
+// remember=true  → 不写入 exp，签发「不过期」token（个人 NAS 场景，安卓端默认使用）。
+//                  这正是「同步显示连不上」的根因之一：30 天过期后所有请求 401，
+//                  客户端又只弹一句笼统提示，用户完全不知道要重新登录。
+// remember=false → 沿用原来的 30 天有效期的行为。
+export function sign(user, { remember = false } = {}) {
+  const payload = {
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    color: user.color,
+  };
+  if (remember) return jwt.sign(payload, JWT_SECRET);
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: "30d" });
 }
 
 // 登录校验中间件

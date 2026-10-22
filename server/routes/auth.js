@@ -41,12 +41,14 @@ r.post(
 r.post(
   "/login",
   wrap((req, res) => {
-    const { username, password } = req.body || {};
+    const { username, password, remember } = req.body || {};
     const user = db.prepare("SELECT * FROM users WHERE username=?").get(username);
     if (!user || !bcrypt.compareSync(password || "", user.password))
       return res.status(400).json({ error: "用户名或密码错误" });
+    // remember=true → 签发不过期 token（安卓端固定传 true，登录一次长期有效）
+    const longLived = remember === true || remember === "true" || remember === 1;
     res.json({
-      token: sign(user),
+      token: sign(user, { remember: longLived }),
       user: { id: user.id, username: user.username, nickname: user.nickname, role: user.role, color: user.color },
     });
   })
