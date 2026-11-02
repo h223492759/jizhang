@@ -4,6 +4,7 @@ import { db } from "../db.js";
 import { auth, requireBook, wrap } from "../mw.js";
 import { tryDeposit } from "./wallets.js";
 import { utilitySyncFlowById, utilityRemoveFlowById } from "./utility.js";
+import { rollbackRecurringOnDelete } from "../lib/recurring.js";
 
 const r = Router();
 r.use(auth);
@@ -124,7 +125,7 @@ r.get(
       .prepare(
         `SELECT f.id, f.book_id, f.user_id, f.type, f.amount, f.category,
                 f.payment_method, f.description, f.flow_time, f.created_at,
-                f.source, f.attribution_uid, ${ATTR_SQL} AS attribution, u.color AS attribution_color
+                f.source, f.client_uuid, f.attribution_uid, ${ATTR_SQL} AS attribution, u.color AS attribution_color
          ${FROM_SQL} ${w}
          ORDER BY ${sortCol} ${sortDir}, f.id DESC LIMIT @limit OFFSET @offset`
       )
@@ -151,6 +152,7 @@ r.get(
     const select =
       `SELECT f.id, f.user_id, f.type, f.amount, f.category, f.payment_method,
               f.description, f.flow_time, f.source, f.created_at, f.updated_at,
+              f.client_uuid,
               f.attribution_uid, ${ATTR_SQL} AS attribution, u.color AS attribution_color
        ${FROM_SQL} WHERE f.book_id = @bookId`;
     let changed;
@@ -514,6 +516,9 @@ r.delete(
       );
     });
     tx();
+    // 删掉的是「提前生成」的未来日期定期流水 → 回退模板 last_period，
+    // 到排程日会重新生成（否则该周期被永久锁死，见 lib/recurring.js 注释）
+    rollbackRecurringOnDelete(req.bookId, cur);
     // 流水删除 → 从水电气账单解绑（账单空则删除）
     try { utilityRemoveFlowById(req.bookId, Number(req.params.id)); }
     catch (e) { console.error("[utility-remove]", e); }

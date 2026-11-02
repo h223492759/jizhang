@@ -93,14 +93,33 @@ try {
 }
 
 // 启动时把到期待生成的定期记账补成真实流水（防重：同一周期只生成一次）
-for (const b of db.prepare("SELECT id FROM books").all()) {
-  try {
-    const n = generateDueRecurring(b.id, new Date());
-    if (n > 0) console.log(`[recurring] 账本 ${b.id} 已生成 ${n} 笔定期记账`);
-  } catch (e) {
-    console.warn("[recurring] 启动生成失败:", e.message);
+// v1.1.2：生成规则改为「只有到了排程日那天才记」+ 每天 00:05 定时补记，
+// 不再只在启动 / 打开定期页时才跑（服务器常驻时也能当天落账）。
+function generateAllDue(reason) {
+  for (const b of db.prepare("SELECT id FROM books").all()) {
+    try {
+      const n = generateDueRecurring(b.id, new Date());
+      if (n > 0) console.log(`[recurring] 账本 ${b.id} 已生成 ${n} 笔定期记账（${reason}）`);
+    } catch (e) {
+      console.warn("[recurring] 启动生成失败:", e.message);
+    }
   }
 }
+generateAllDue("启动");
+
+// 计算到下一个「北京时间 hh:mm」的毫秒数
+function msUntilNextBjt(hour, minute) {
+  const now = new Date();
+  const bjt = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
+  const next = new Date(bjt);
+  next.setHours(hour, minute, 0, 0);
+  if (next <= bjt) next.setDate(next.getDate() + 1);
+  return Math.max(1000, next - bjt);
+}
+setTimeout(function scheduleRecurring() {
+  generateAllDue("每日定时");
+  setTimeout(scheduleRecurring, msUntilNextBjt(0, 5));
+}, msUntilNextBjt(0, 5));
 
 // 常用名称建议：启动全量重建一次 + 每天凌晨 1 点（北京时间）定时重建。
 // 流水保存/删除/导入不再触发单账本重建（用户：没那么高频，只保留定时）。
