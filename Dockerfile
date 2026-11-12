@@ -8,9 +8,10 @@ FROM node:22-bookworm-slim AS web-builder
 WORKDIR /app/web
 
 # 先装依赖（利用 Docker 层缓存）
+# v2.4.0：改 npm ci 严格按 lock 安装，构建结果可复现
 COPY web/package.json ./
 COPY web/package-lock.json* ./
-RUN npm install --no-audit --no-fund
+RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
 
 # 再拷源码构建
 COPY web/ ./
@@ -28,7 +29,8 @@ RUN apt-get update \
 
 COPY package.json ./
 COPY package-lock.json* ./
-RUN npm install --omit=dev --no-audit --no-fund
+# v2.4.0：改 npm ci 严格按 lock 安装（lock 与 package.json 不一致时回退 npm install 兜底）
+RUN npm ci --omit=dev --no-audit --no-fund || npm install --omit=dev --no-audit --no-fund
 
 
 # ---------- 阶段 3：运行时（不含编译工具，镜像更小） ----------

@@ -703,5 +703,8 @@ export function ensureAdmin() {
     "INSERT INTO book_members (book_id, user_id, role) VALUES (?,?, 'owner')"
   ).run(bid, uid);
   seedCategories(bid);
-  console.log(`[init] 已创建默认管理员账号：${username} / ${password}`);
+  // v2.4.0：启动日志不再打印口令明文（此前 console.log 会把默认口令直接打进日志）
+  console.log(
+    `[init] 已创建默认管理员账号：${username}（口令来自 ADMIN_PASSWORD 环境变量，未设置时为部署模板默认值，请尽快修改）`
+  );
 }

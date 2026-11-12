@@ -5,6 +5,7 @@ import api from "../api.js";
 import { useStore } from "../store.js";
 import { toast } from "../toast.js";
 import EChart from "../components/EChart.vue";
+import CatIcon from "../components/CatIcon.vue";
 
 const store = useStore();
 const year = ref(dayjs().year());
@@ -355,7 +356,7 @@ async function doCopy() {
                 class="cc" :class="{ on: form.categories.includes(c.name), disabled: usedExpenseCats.includes(c.name) && !form.categories.includes(c.name) }"
                 :disabled="usedExpenseCats.includes(c.name) && !form.categories.includes(c.name)"
                 @click="toggleCat(c.name)"
-              >{{ c.icon }} {{ c.name }}</button>
+              ><CatIcon :name="c.name" :size="18" :emoji="c.icon" /> {{ c.name }}</button>
             </div>
           </div>
         </template>

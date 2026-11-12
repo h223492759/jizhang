@@ -136,7 +136,10 @@ r.get(
 );
 
 // 增量同步（安卓离线优先用）：
-// - 传 since 时只返回 updated_at > since 的变更行（含新增+修改，客户端 upsert）
+// - 传 since 时只返回 updated_at >= since 的变更行（含新增+修改，客户端 upsert 幂等）
+//   v2.4.0：从 > 改为 >= —— SQLite 时间戳只到秒，上一轮"查询后、server_time 落表前"
+//   写入的行 updated_at 可能与游标同秒，用 > 会永久跳过（同秒丢行）。
+//   >= 会重拉游标同秒的少量行，客户端按 id upsert 天然幂等，无重复副作用。
 // - 始终返回当前账本全部存活 id 列表，客户端据此对账删除
 // - 不传 since = 全量拉取
 r.get(
@@ -158,7 +161,7 @@ r.get(
     let changed;
     if (since) {
       changed = db
-        .prepare(select + ` AND f.updated_at > @since ORDER BY f.updated_at`)
+        .prepare(select + ` AND f.updated_at >= @since ORDER BY f.updated_at`)
         .all({ bookId, since });
     } else {
       changed = db

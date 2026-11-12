@@ -2,7 +2,7 @@ import express from "express";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { db, ensureAdmin, ensureDefaultCategoriesForAllBooks, applyCanonicalCategoryOrder } from "./db.js";
+import { db, ensureAdmin, ensureDefaultCategoriesForAllBooks, applyCanonicalCategoryOrder, getSetting, setSetting } from "./db.js";
 import authRoutes from "./routes/auth.js";
 import bookRoutes from "./routes/books.js";
 import categoryRoutes from "./routes/categories.js";
@@ -34,7 +34,14 @@ app.use(express.json({ limit: "20mb" }));
 
 ensureAdmin();
 ensureDefaultCategoriesForAllBooks();
-applyCanonicalCategoryOrder();
+// v2.4.0：分类顺序整理改为【一次性迁移】。旧版每次启动都强制把分类重排成
+// 内置"标准顺序"，用户手动调过的顺序一重启就被覆盖。改用 settings 打标，
+// 只在从未跑过时执行一次；以后想再跑可手动删除 settings 里的 cat_order_migrated 键。
+if (!getSetting("cat_order_migrated")) {
+  applyCanonicalCategoryOrder();
+  setSetting("cat_order_migrated", new Date().toISOString());
+  console.log("[migrate] 分类标准顺序整理完成（一次性迁移，此后不再覆盖用户排序）");
+}
 
 // 存量流水名称补齐：历史数据 description 留空 → 自动补为该笔的分类名（幂等，可重复执行）
 // 与前端「名称留空自动用分类名」语义一致；新写入侧由 FlowDialog 提交前兜底。

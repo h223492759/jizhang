@@ -19,7 +19,12 @@ export function clampInt(v, min, max, dflt) {
 export function schedInPeriod(freq, dayOfMonth, monthOfYear, ref) {
   const t = dayjs(ref);
   if (freq === "yearly") {
-    return dayjs(`${t.format("YYYY")}-${pad(monthOfYear)}-${pad(dayOfMonth)}`);
+    // v2.4.0：按当月天数钳制 —— 旧版直接拼 YYYY-MM-DD，2 月 29 日的年模板
+    // 在平年会拼出无效日期（dayjs 解析成 Invalid Date），那一期静默丢掉。
+    // 与月模板同口径：该月没有这一天则取月末（2/29 → 平年 2/28）。
+    const base = dayjs(`${t.format("YYYY")}-${pad(monthOfYear)}-01`);
+    const dm = Math.min(dayOfMonth, base.daysInMonth());
+    return base.date(dm);
   }
   const dm = Math.min(dayOfMonth, t.daysInMonth());
   return dayjs(`${t.format("YYYY-MM")}-${pad(dm)}`);

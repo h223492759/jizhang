@@ -5,6 +5,7 @@ import api from "../api.js";
 import { useStore } from "../store.js";
 import { toast } from "../toast.js";
 import FlowDialog from "../components/FlowDialog.vue";
+import CatIcon from "../components/CatIcon.vue";
 
 const store = useStore();
 const text = ref("");
@@ -165,7 +166,7 @@ async function analyze() {
         <div class="rline">
           <span class="tag" :class="created.type">{{ created.type === "expense" ? "支出" : "收入" }}</span>
           <b class="ramt" :class="created.type">¥{{ Number(created.amount).toFixed(2) }}</b>
-          <span class="tag">{{ store.categories.find(c => c.name === created.category)?.icon || "💰" }} {{ created.category }}</span>
+          <span class="tag"><CatIcon :name="created.category" :size="18" :emoji="store.categories.find(c => c.name === created.category)?.icon || '💰'" /> {{ created.category }}</span>
           <span v-if="created.payment_method" class="tag">{{ created.payment_method }}</span>
           <span class="muted small">已记账 ✓</span>
         </div>

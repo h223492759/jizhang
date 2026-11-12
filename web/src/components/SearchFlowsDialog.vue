@@ -5,6 +5,9 @@ import api from "../api.js";
 import { useStore } from "../store.js";
 import { toast } from "../toast.js";
 import PeriodSwitcher from "./PeriodSwitcher.vue";
+import FlowDialog from "./FlowDialog.vue";
+import CatIcon from "./CatIcon.vue";
+import { catIconBg } from "../lib/catIcon.js";
 
 // 统计页「🔍 搜索流水」两段式交互（用户澄清后实现）：
 // 1) 视图 kw：点搜索 → 弹输入框 → 输入关键字，回车或点「搜索」确认
@@ -12,7 +15,7 @@ import PeriodSwitcher from "./PeriodSwitcher.vue";
 //    顶部是通用的「全部时间 / 月 / 年 + PeriodSwitcher 快速 chips」交互，可随时收窄到某月/某年
 // 数据接口复用 GET /flows（keyword LIKE description + start/end + page/pageSize 上限 200）
 const props = defineProps({ show: Boolean });
-const emit = defineEmits(["update:show"]);
+const emit = defineEmits(["update:show", "changed"]);
 const store = useStore();
 
 const view = ref("kw"); // kw（先输关键字） | list（结果弹窗）
@@ -129,6 +132,29 @@ function ownerBg(c) {
   if (!c) return "";
   return `${c}1a`;
 }
+
+// ---------------- 结果弹窗内直接改/删流水（自包含：编辑走 FlowDialog，删除软删进回收站） ----------------
+const editing = ref(null);
+const showFlowDialog = ref(false);
+function editFlow(f) {
+  editing.value = f;
+  showFlowDialog.value = true;
+}
+function onFlowSaved() {
+  fetchList(true);
+  emit("changed"); // 让父视图刷新汇总
+}
+async function delFlow(f) {
+  if (!confirm(`确定删除这条「${f.category} ${f.amount}」记录吗？将移入回收站，可在流水页「回收站」恢复。`)) return;
+  try {
+    await api.delete(`/flows/${f.id}`);
+    toast("已移入回收站");
+    await fetchList(true);
+    emit("changed");
+  } catch (e) {
+    toast(e.message);
+  }
+}
 </script>
 
 <template>
@@ -201,7 +227,7 @@ function ownerBg(c) {
               class="sf-cat"
               :style="f.attribution_color ? { background: ownerBg(f.attribution_color), color: f.attribution_color } : null"
             >
-              <span class="sf-icon">{{ catIcon(f.category) }}</span>
+              <CatIcon :name="f.category" :bg="catIconBg(f, store.user)" :size="28" :emoji="catIcon(f.category)" />
               <span class="sf-catname">{{ f.category }}</span>
               <span v-if="f.attribution" class="sf-owner" :title="f.attribution">· {{ ownerShort(f.attribution) }}</span>
             </div>
@@ -221,6 +247,10 @@ function ownerBg(c) {
                 <span class="muted">{{ dayjs(f.flow_time).format('YYYY-MM-DD HH:mm') }}</span>
               </div>
             </div>
+            <div class="sf-actions">
+              <button class="btn btn-sm" @click.stop="editFlow(f)">改</button>
+              <button class="btn btn-sm btn-danger" @click.stop="delFlow(f)">删</button>
+            </div>
           </div>
           <button v-if="!loadedAll" class="btn sf-more" :disabled="loading" @click="loadMore">
             {{ loading ? '加载中…' : `加载更多（已显示 ${rows.length}/${total}）` }}
@@ -230,6 +260,9 @@ function ownerBg(c) {
         <div v-else-if="searched" class="muted" style="padding: 24px; text-align: center">没有匹配的流水</div>
       </div>
     </div>
+
+    <!-- 结果弹窗内的流水编辑弹窗（改完刷新列表并通知父视图） -->
+    <FlowDialog v-model="showFlowDialog" :flow="editing" @saved="onFlowSaved" />
   </div>
 </template>
 
@@ -295,6 +328,7 @@ function ownerBg(c) {
 .sf-icon { font-size: 20px; }
 .sf-catname { font-weight: 700; font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sf-owner { font-size: 11px; opacity: 0.75; margin-left: 2px; white-space: nowrap; }
+.sf-actions { flex: none; display: flex; flex-direction: column; gap: 6px; }
 .sf-main { flex: 1; min-width: 0; }
 .sf-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .sf-name { font-size: 14px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

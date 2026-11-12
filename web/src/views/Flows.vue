@@ -6,6 +6,8 @@ import { useStore } from "../store.js";
 import { toast } from "../toast.js";
 import FlowDialog from "../components/FlowDialog.vue";
 import SearchFlowsDialog from "../components/SearchFlowsDialog.vue";
+import CatIcon from "../components/CatIcon.vue";
+import { catIconBg } from "../lib/catIcon.js";
 
 const store = useStore();
 const filter = ref({ start: "", end: "", type: "", category: "", attribution: "", keyword: "" });
@@ -285,7 +287,7 @@ function freqText(t) {
             v-for="c in catOptions" :key="c.id"
             class="cat-opt" :class="{ on: filter.category === c.name }"
             @click="pickCat(c.name)"
-          >{{ c.icon }} {{ c.name }}</button>
+          ><CatIcon :name="c.name" :size="18" :emoji="c.icon" /> {{ c.name }}</button>
         </div>
       </div>
 
@@ -330,7 +332,7 @@ function freqText(t) {
         </thead>
         <tbody>
           <tr v-for="f in data.list" :key="f.id">
-            <td><span class="ic">{{ catIcon(f.category) }}</span>{{ f.category }}</td>
+            <td><span class="ic"><CatIcon :name="f.category" :bg="catIconBg(f, store.user)" :size="28" :emoji="catIcon(f.category)" /></span>{{ f.category }}</td>
             <td class="hide-mobile muted">
               <!-- source：'ai' = AI 识别记账，'auto' = 通知/无障碍自动记账，两者都打 AI 标签 -->
               <span v-if="f.source === 'ai' || f.source === 'auto'" class="ai-tag"
@@ -379,7 +381,7 @@ function freqText(t) {
         <div v-for="t in recur" :key="t.id" class="card recur-card">
           <div class="rc-top">
             <span class="tag" :class="t.type">{{ t.type==='expense' ? '支出' : '收入' }}</span>
-            <b>{{ store.categories.find(c => c.name === t.category)?.icon || '💰' }} {{ t.category }}</b>
+            <b><CatIcon :name="t.category" :size="20" :emoji="store.categories.find(c => c.name === t.category)?.icon || '💰'" /> {{ t.category }}</b>
             <span class="rc-amt" :class="t.type">¥{{ Number(t.amount).toFixed(2) }}</span>
           </div>
           <div class="rc-desc muted" v-if="t.description">{{ t.description }}</div>
@@ -494,7 +496,7 @@ function freqText(t) {
     </div>
 
     <FlowDialog v-model="showDialog" :flow="editing" @saved="load" />
-    <SearchFlowsDialog v-model:show="searchOpen" />
+    <SearchFlowsDialog v-model:show="searchOpen" @changed="load" />
   </div>
 </template>
 

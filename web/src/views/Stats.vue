@@ -8,6 +8,9 @@ import { resolvePieDetail, resolveBarDetail } from "../lib/statsDetail.js";
 import DateInput from "../components/DateInput.vue";
 import PeriodSwitcher from "../components/PeriodSwitcher.vue";
 import SearchFlowsDialog from "../components/SearchFlowsDialog.vue";
+import FlowDialog from "../components/FlowDialog.vue";
+import CatIcon from "../components/CatIcon.vue";
+import { catIconBg } from "../lib/catIcon.js";
 
 const store = useStore();
 
@@ -297,6 +300,29 @@ function ownerShort(name) {
   return s.length <= 2 ? s : s.slice(-2);
 }
 
+// 明细弹窗内直接改/删流水（与流水页同交互：编辑走 FlowDialog，删除软删进回收站）
+const editing = ref(null);
+const showFlowDialog = ref(false);
+function editDetailFlow(f) {
+  editing.value = f;
+  showFlowDialog.value = true;
+}
+function onFlowSaved() {
+  fetchDetail();
+  load();
+}
+async function delDetailFlow(f) {
+  if (!confirm(`确定删除这条「${f.category} ${f.amount}」记录吗？将移入回收站，可在流水页「回收站」恢复。`)) return;
+  try {
+    await api.delete(`/flows/${f.id}`);
+    toast("已移入回收站");
+    await fetchDetail();
+    load();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
 // ---------------- 分类排行（对齐安卓「分类排行」列表，数据源同分类饼图） ----------------
 const catTotal = computed(() => category.value.reduce((s, c) => s + Number(c.value || 0), 0));
 const catMax = computed(() => category.value.reduce((s, c) => Math.max(s, Number(c.value || 0)), 0));
@@ -389,7 +415,7 @@ async function onRankClick(name) {
       </div>
       <div v-if="category.length" class="rank-list">
         <div v-for="(c, i) in category" :key="c.name" class="rank-row" @click="onRankClick(c.name)">
-          <span class="rank-icon" :style="{ background: PALETTE[i % PALETTE.length] + '1a', color: PALETTE[i % PALETTE.length] }">{{ catIcon(c.name) }}</span>
+          <span class="rank-icon"><CatIcon :name="c.name" :bg="PALETTE[i % PALETTE.length]" :size="34" :emoji="catIcon(c.name)" /></span>
           <div class="rank-main">
             <div class="rank-line1">
               <span class="rank-name">{{ c.name }} <span class="rank-pct muted">{{ catPct(c) }}</span></span>
@@ -446,7 +472,7 @@ async function onRankClick(name) {
                 class="dr-cat"
                 :style="f.attribution_color ? { background: ownerBg(f.attribution_color), color: f.attribution_color } : null"
               >
-                <span class="dr-icon">{{ catIcon(f.category) }}</span>
+                <CatIcon :name="f.category" :bg="catIconBg(f, store.user)" :size="28" :emoji="catIcon(f.category)" />
                 <span class="dr-catname">{{ f.category }}</span>
                 <span v-if="f.attribution" class="dr-owner-label" :title="f.attribution">· {{ ownerShort(f.attribution) }}</span>
               </div>
@@ -460,6 +486,10 @@ async function onRankClick(name) {
                 </div>
                 <div class="dr-bar"><i :class="f.type" :style="{ width: pct(f) }"></i></div>
                 <div class="dr-date muted">{{ dayjs(f.flow_time).format('YYYY-MM-DD HH:mm') }}</div>
+              </div>
+              <div class="dr-actions">
+                <button class="btn btn-sm" @click.stop="editDetailFlow(f)">改</button>
+                <button class="btn btn-sm btn-danger" @click.stop="delDetailFlow(f)">删</button>
               </div>
             </div>
           </div>
@@ -475,7 +505,9 @@ async function onRankClick(name) {
     </div>
 
     <!-- 关键字搜索流水弹窗 -->
-    <SearchFlowsDialog v-model:show="searchOpen" />
+    <SearchFlowsDialog v-model:show="searchOpen" @changed="load" />
+    <!-- 明细弹窗内的流水编辑弹窗（改完刷新明细与主页面汇总） -->
+    <FlowDialog v-model="showFlowDialog" :flow="editing" @saved="onFlowSaved" />
   </div>
 </template>
 
@@ -543,6 +575,7 @@ export default { components: { EChart } };
 .dr-cat { flex: 0 0 112px; display: flex; align-items: center; gap: 6px; justify-content: flex-start; }
 .dr-icon { font-size: 22px; }
 .dr-catname { font-weight: 700; font-size: 15px; color: var(--text); }
+.dr-actions { flex: none; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
 .dr-main { flex: 1; min-width: 0; }
 .dr-line1 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .dr-name { font-size: 15px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

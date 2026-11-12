@@ -36,6 +36,10 @@ function calcFingerprint(bookId) {
   );
   // 整包 JSON 表（savings 是 goal/items/history 分散表，wallets 是结构化表）：
   // 内容哈希兜底（量小，md5 亚毫秒级）
+  // ⚠️ 列名必须是真实存在的列（v2.4.0 修正）：此前 savings_goal 用了不存在的
+  //    id/target（实际 PK 是 book_id）、savings_items 用了 target/order_no、
+  //    wallets 用了 balance —— SELECT 直接报错，又被下面的 catch 吞成 ""，
+  //    这三块内容变化时指纹恒定不变 → 客户端永远 unchanged，数据不同步。
   const hashRows = (tbl, cols) => {
     try {
       const rows = db
@@ -44,17 +48,20 @@ function calcFingerprint(bookId) {
       return createHash("md5")
         .update(rows.map((x) => JSON.stringify(x)).join("|"))
         .digest("hex");
-    } catch (_) {
-      return "";
+    } catch (e) {
+      // 不再静默吞错：返回可区分的错误标记（≠ 任何正常哈希），
+      // 客户端会认为"有变化"重新拉全量 —— 宁可多拉，不可漏拉。
+      console.error(`[fingerprint] 读表失败 ${tbl}: ${e.message}`);
+      return "ERR:" + tbl;
     }
   };
   const sav =
-    hashRows("savings_goal", "id, target, note") +
-    hashRows("savings_items", "id, name, target, order_no") +
+    hashRows("savings_goal", "book_id, target, note, updated_at") +
+    hashRows("savings_items", "id, name, sign, amount, note, sort, updated_at") +
     hashRows("savings_history", "id, ymd, asset, liability, net, op_user");
   const wal = hashRows(
     "wallets",
-    "id, name, icon, target, note, balance, link_from, link_category"
+    "id, name, icon, target, note, sort, link_from, link_category, link_links, deposit_rules, created_at, client_uuid"
   );
 
   return [

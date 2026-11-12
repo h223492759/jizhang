@@ -6,6 +6,8 @@ import { useStore } from "../store.js";
 import { toast } from "../toast.js";
 import FlowDialog from "../components/FlowDialog.vue";
 import SearchFlowsDialog from "../components/SearchFlowsDialog.vue";
+import CatIcon from "../components/CatIcon.vue";
+import { catIconBg } from "../lib/catIcon.js";
 
 const store = useStore();
 const month = ref(dayjs().format("YYYY-MM"));
@@ -156,7 +158,7 @@ function catIcon(name) {
       </div>
       <div v-if="!recent.length" class="empty-tip muted">本月还没有记录，点右上角「记一笔」开始吧</div>
       <div v-for="f in recent" :key="f.id" class="frow">
-        <div class="ficon">{{ catIcon(f.category) }}</div>
+        <CatIcon :name="f.category" :bg="catIconBg(f, store.user)" :size="38" :emoji="catIcon(f.category)" />
         <div class="fmain">
           <div class="fcat">
             <!-- source：'ai' = AI 识别记账，'auto' = 通知/无障碍自动记账，两者都打 AI 标签 -->
@@ -171,7 +173,7 @@ function catIcon(name) {
     </div>
 
     <FlowDialog v-model="showDialog" :preset="preset" @saved="onSaved" />
-    <SearchFlowsDialog v-model:show="searchOpen" />
+    <SearchFlowsDialog v-model:show="searchOpen" @changed="load" />
   </div>
 </template>
 

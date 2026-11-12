@@ -55,7 +55,30 @@ r.put(
   })
 );
 
-// 删除账本（连带流水/分类/预算/成员）
+// 删除账本（连带全部业务表，事务包裹）
+// v2.4.0 级联补全：旧版只清 5 张表，flows_trash/presets/recurring/wallets 等
+// 全部残留成孤儿数据，日积月累污染统计与导出。这里枚举所有带 book_id 的业务表。
+const BOOK_SCOPED_TABLES = [
+  "flows",
+  "flows_trash",
+  "categories",
+  "budgets",
+  "presets",
+  "preset_suggest",
+  "hidden_names",
+  "merchant_cats",
+  "recurring",
+  "savings_goal",
+  "savings_items",
+  "savings_history",
+  "wallets",
+  "wallet_txns",
+  "utility_rules",
+  "utility_records",
+  "client_logs",
+  "op_logs",
+  "book_members",
+];
 r.delete(
   "/:bookId",
   requireBook,
@@ -64,10 +87,9 @@ r.delete(
       return res.status(403).json({ error: "只有拥有者可以删除账本" });
     const bid = req.bookId;
     const tx = db.transaction(() => {
-      db.prepare("DELETE FROM flows WHERE book_id=?").run(bid);
-      db.prepare("DELETE FROM categories WHERE book_id=?").run(bid);
-      db.prepare("DELETE FROM budgets WHERE book_id=?").run(bid);
-      db.prepare("DELETE FROM book_members WHERE book_id=?").run(bid);
+      for (const t of BOOK_SCOPED_TABLES) {
+        db.prepare(`DELETE FROM ${t} WHERE book_id=?`).run(bid);
+      }
       db.prepare("DELETE FROM books WHERE id=?").run(bid);
     });
     tx();

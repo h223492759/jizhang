@@ -5,6 +5,7 @@ import api from "../api.js";
 import { useStore } from "../store.js";
 import { toast } from "../toast.js";
 import DateInput from "./DateInput.vue";
+import CatIcon from "./CatIcon.vue";
 
 const props = defineProps({
   modelValue: Boolean,
@@ -253,7 +254,7 @@ function close() {
             :class="['cat', { on: form.category === c.name }]"
             @click="form.category = c.name"
           >
-            <em>{{ c.icon }}</em>{{ c.name }}
+            <CatIcon :name="c.name" :size="24" :emoji="c.icon" />{{ c.name }}
           </button>
         </div>
       </label>
