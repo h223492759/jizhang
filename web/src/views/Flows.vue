@@ -7,7 +7,7 @@ import { toast } from "../toast.js";
 import FlowDialog from "../components/FlowDialog.vue";
 import SearchFlowsDialog from "../components/SearchFlowsDialog.vue";
 import CatIcon from "../components/CatIcon.vue";
-import { catIconBg } from "../lib/catIcon.js";
+import { catIconBg, plainIcon } from "../lib/catIcon.js";
 
 const store = useStore();
 const filter = ref({ start: "", end: "", type: "", category: "", attribution: "", keyword: "" });
@@ -412,7 +412,7 @@ function freqText(t) {
 
           <label class="field"><span>分类</span>
             <select class="select" v-model="recurForm.category">
-              <option v-for="c in recurCats" :key="c.id" :value="c.name">{{ c.icon }} {{ c.name }}</option>
+              <option v-for="c in recurCats" :key="c.id" :value="c.name">{{ [plainIcon(c.icon), c.name].filter(Boolean).join(' ') }}</option>
             </select>
           </label>
           <label class="field"><span>名称（可空，留空用分类名）</span>

@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from "vue";
 import { useRouter } from "vue-router";
 import api from "../api.js";
 import { toast } from "../toast.js";
+import { plainIcon } from "../lib/catIcon.js";
 
 const router = useRouter();
 const TYPES = [
@@ -407,7 +408,7 @@ onMounted(load);
           </label>
           <label>关联消费分类（识别该分类下含「水费/电费/燃气费/物业费」的支出流水）
             <select class="select" v-model="f.category">
-              <option v-for="c in expenseCats" :key="c.name" :value="c.name">{{ c.icon }} {{ c.name }}</option>
+              <option v-for="c in expenseCats" :key="c.name" :value="c.name">{{ [plainIcon(c.icon), c.name].filter(Boolean).join(' ') }}</option>
               <option v-if="f.category && !expenseCats.some((c) => c.name === f.category)" :value="f.category">{{ f.category }}（分类已删除）</option>
             </select>
           </label>

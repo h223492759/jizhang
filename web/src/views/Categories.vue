@@ -4,6 +4,8 @@ import api from "../api.js";
 import { useStore } from "../store.js";
 import { toast } from "../toast.js";
 import CatIcon from "../components/CatIcon.vue";
+import { CAT_ICON_NAMES } from "../lib/catIconNames";
+import { tintSolid, plainIcon } from "../lib/catIcon";
 
 const store = useStore();
 const tab = ref("expense");
@@ -132,6 +134,9 @@ const ICONS = [
 ];
 const COLORS = ["#6366f1","#ef4444","#f59e0b","#10b981","#3b82f6","#ec4899","#8b5cf6","#14b8a6","#f97316","#64748b"];
 
+// 矢量字形池（与宫格展示同一套 SVG 图标）
+const GLYPHS = [...CAT_ICON_NAMES];
+
 const list = computed(() => store.categories.filter((c) => c.type === tab.value));
 const scanning = ref(false);
 
@@ -154,12 +159,38 @@ async function move(cat, dir) {
   } catch (e) { toast(e.message); }
 }
 
-const usedIcons = computed(
-  () => new Set(store.categories.filter((c) => c.id !== form.value.id).map((c) => c.icon))
-);
+const usedIcons = computed(() => {
+  // 占位判定：别的分类若已占用某字形/emoji，这里就置灰。
+  //  - icon 存 "svg:<字形名>" 覆盖 → 占用该值
+  //  - icon 是 emoji 且分类名能自动匹配字形 → 同时占用 "svg:<名>"（名称自动渲染）
+  const s = new Set();
+  for (const c of store.categories) {
+    if (c.id === form.value.id) continue;
+    const ic = (c.icon || "").trim();
+    if (ic.startsWith("svg:")) { s.add(ic); continue; }
+    if (CAT_ICON_NAMES.has(c.name)) s.add("svg:" + c.name);
+    if (ic) s.add(ic);
+  }
+  return s;
+});
 function pickIcon(i) {
   if (usedIcons.value.has(i) && i !== form.value.icon) return;
   form.value.icon = i;
+}
+// 矢量字形选择：存 "svg:<字形名>"，渲染层按字形名取 SVG
+function pickGlyph(n) {
+  pickIcon("svg:" + n);
+}
+// 当前实际生效的字形：显式 svg: 覆盖优先；否则分类名能自动匹配时高亮该字形
+const currentGlyph = computed(() => {
+  const ic = (form.value.icon || "").trim();
+  if (ic.startsWith("svg:")) return ic.slice(4).trim();
+  return CAT_ICON_NAMES.has(form.value.name) ? form.value.name : "";
+});
+// select 里展示分类图标：svg: 覆盖没有 emoji 字符，只显示名称
+function iconLabel(icon) {
+  const s = plainIcon(icon);
+  return s ? s + " " : "";
 }
 
 function add() {
@@ -263,7 +294,7 @@ const mergeTargets = computed(() => {
 
     <div class="grid cat-grid">
       <div v-for="c in list" :key="c.id" class="card cat" @click="edit(c)">
-        <CatIcon :name="c.name" :bg="c.color + '22'" :size="46" :emoji="c.icon" />
+        <CatIcon :name="c.name" :bg="tintSolid(c.color, store.theme)" :size="46" :emoji="c.icon" />
         <div class="cname">{{ c.name }}</div>
         <div v-if="(c.flow_count||0) > 0" class="flow-badge clickable" :title="`该分类下有 ${c.flow_count} 条流水，点击查看`" @click.stop="showFlows(c)">
           📊 {{ c.flow_count }} 条流水
@@ -282,7 +313,16 @@ const mergeTargets = computed(() => {
         <h3 class="modal-title">{{ form.id ? "编辑分类" : "新增" + (tab==='expense'?'支出':'收入') + "分类" }}</h3>
         <label class="field"><span>名称</span><input class="input" v-model.trim="form.name" placeholder="分类名称" /></label>
         <label class="field"><span>图标（灰色为其他分类已用，避免重复）</span>
-          <div class="picker">
+          <div class="picker glyph-picker">
+            <button
+              v-for="g in GLYPHS" :key="'svg:' + g"
+              :class="['picon picon-glyph', { on: currentGlyph === g, used: usedIcons.has('svg:' + g) && currentGlyph !== g }]"
+              :title="g" @click="pickGlyph(g)"
+            >
+              <CatIcon :name="g" :bg="'#F2F2F2'" :size="26" />
+            </button>
+          </div>
+          <div class="picker emoji-picker">
             <button v-for="i in ICONS" :key="i" :class="['picon',{on:form.icon===i, used: usedIcons.has(i) && i!==form.icon}]" @click="pickIcon(i)">{{ i }}</button>
           </div>
         </label>
@@ -292,7 +332,7 @@ const mergeTargets = computed(() => {
           </div>
         </label>
         <div class="preview">
-          预览：<CatIcon :name="form.name" :bg="form.color + '22'" :size="30" :emoji="form.icon" style="vertical-align: middle" /> {{ form.name || "分类名" }}
+          预览：<CatIcon :name="form.name" :bg="tintSolid(form.color, store.theme)" :size="30" :emoji="form.icon" style="vertical-align: middle" /> {{ form.name || "分类名" }}
         </div>
         <div class="row" style="justify-content:flex-end">
           <button class="btn" @click="showDialog=false">取消</button>
@@ -314,7 +354,7 @@ const mergeTargets = computed(() => {
           <select class="select" v-model="mergeDlg.targetId">
             <option value="">请选择...</option>
             <option v-for="t in mergeTargets" :key="t.id" :value="t.id">
-              {{ t.icon }} {{ t.name }}（{{ t.flow_count || 0 }} 条流水）
+              {{ iconLabel(t.icon) }}{{ t.name }}（{{ t.flow_count || 0 }} 条流水）
             </option>
           </select>
         </label>
@@ -394,7 +434,7 @@ const mergeTargets = computed(() => {
         <label class="field"><span>分类</span>
           <select class="input" v-model="editDlg.category">
             <option v-for="c in store.categories.filter(x => x.type === editDlg.type)" :key="c.id" :value="c.name">
-              {{ c.icon }} {{ c.name }}
+              {{ iconLabel(c.icon) }}{{ c.name }}
             </option>
           </select>
         </label>
@@ -471,7 +511,10 @@ const mergeTargets = computed(() => {
 .mini { border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); cursor: pointer; font-size: 11px; width: 18px; height: 18px; border-radius: 5px; line-height: 1; opacity: 0; }
 .cat:hover .del, .cat:hover .mini { opacity: 1; }
 .picker { display: flex; flex-wrap: wrap; gap: 6px; max-height: 180px; overflow-y: auto; padding-right: 4px; }
+.picker.glyph-picker { max-height: 152px; }
+.picker.emoji-picker { max-height: 96px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border); }
 .picon { width: 38px; height: 38px; border: 1px solid var(--border); background: var(--surface-2); border-radius: 9px; font-size: 19px; cursor: pointer; }
+.picon.picon-glyph { display: inline-flex; align-items: center; justify-content: center; padding: 0; background: var(--surface); }
 .picon.on { border-color: var(--primary); background: var(--primary-soft); }
 .picon.used { opacity: .4; filter: grayscale(1); cursor: not-allowed; }
 .pcolor { width: 30px; height: 30px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }

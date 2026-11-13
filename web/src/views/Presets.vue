@@ -3,6 +3,7 @@ import { ref, reactive, computed, onMounted } from "vue";
 import api from "../api.js";
 import { useStore } from "../store.js";
 import { toast } from "../toast.js";
+import { plainIcon } from "../lib/catIcon.js";
 
 // 模块级缓存：组件销毁后保留，避免每次切回"常用名称"页都空白等 6 秒
 const _cached = { expense: null, income: null };
@@ -320,7 +321,7 @@ const grouped = computed(() => {
           <input class="input" style="flex: 2; min-width: 130px" v-model.trim="forms[type].name" :placeholder="`${TYPE_META[type].label}常用名称，如：${type === 'expense' ? '早饭 / 地铁通勤' : '工资 / 红包'}`" />
           <select class="select" style="flex: 1; min-width: 100px" v-model="forms[type].category">
             <option value="">默认分类（可选）</option>
-            <option v-for="c in catsOf(type)" :key="c.id" :value="c.name">{{ c.icon }} {{ c.name }}</option>
+            <option v-for="c in catsOf(type)" :key="c.id" :value="c.name">{{ [plainIcon(c.icon), c.name].filter(Boolean).join(' ') }}</option>
           </select>
           <input class="input" style="flex: 1; min-width: 100px" v-model.trim="forms[type].payment_method" placeholder="支付方式" />
           <input class="input" style="flex: 1; min-width: 80px" type="number" step="0.01" v-model="forms[type].amount" placeholder="金额" />
