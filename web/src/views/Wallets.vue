@@ -6,6 +6,11 @@ import { toast } from "../toast.js";
 import { useStore } from "../store.js";
 import EChart from "../components/EChart.vue";
 import DateInput from "../components/DateInput.vue";
+import CatIcon from "../components/CatIcon.vue";
+import { CAT_ICON_NAMES } from "../lib/catIconNames";
+
+// 钱包图标点选池：分类矢量图标全集（icon 存名字，渲染端无对应 SVG 自动回退 emoji）
+const CAT_ICON_LIST = [...CAT_ICON_NAMES];
 
 const store = useStore();
 
@@ -319,7 +324,7 @@ async function saveTxnEdit() {
     <div class="grid wallet-grid" style="margin-top:16px">
       <div v-for="w in data.wallets" :key="w.id" class="card wallet" @click="openDetail(w)">
         <div class="w-top">
-          <span class="w-ic">{{ w.icon || '👛' }}</span>
+          <CatIcon :name="w.icon || ''" :size="34" :emoji="w.icon || '👛'" />
           <b class="w-name">{{ w.name }}</b>
           <span class="muted small w-cnt">{{ w.count }}笔</span>
         </div>
@@ -363,8 +368,15 @@ async function saveTxnEdit() {
           <input class="input" v-model="walletForm.name" placeholder="养娃" />
         </label>
         <label class="field">
-          <span>图标（emoji，可选）</span>
-          <input class="input" v-model="walletForm.icon" placeholder="👛" maxlength="4" style="width:80px" />
+          <span>图标（emoji 可手输，或从下面点选矢量图标）</span>
+          <input class="input" v-model="walletForm.icon" placeholder="👛" style="width:120px" />
+          <div class="picker wallet-icon-picker">
+            <button v-for="n in CAT_ICON_LIST" :key="n" type="button"
+              :class="['wpick', { on: walletForm.icon === n }]"
+              @click="walletForm.icon = n" :title="n">
+              <CatIcon :name="n" :size="30" bg="#F2F2F2" />
+            </button>
+          </div>
         </label>
         <label class="field">
           <span>目标金额（可选，不填则不显示进度）</span>
@@ -432,7 +444,7 @@ async function saveTxnEdit() {
       <div class="modal" style="max-width:720px">
         <div class="modal-head">
           <h3 class="modal-title" style="margin:0">
-            <span class="w-ic big">{{ detail.wallet.icon || '👛' }}</span> {{ detail.wallet.name }}
+            <CatIcon :name="detail.wallet.icon || ''" :size="30" :emoji="detail.wallet.icon || '👛'" /> {{ detail.wallet.name }}
           </h3>
           <div class="row" style="gap:8px">
             <button class="btn" @click="showDetail = false">关闭</button>
@@ -574,8 +586,10 @@ async function saveTxnEdit() {
 .wallet { padding: 14px; cursor: pointer; transition: box-shadow .15s, transform .15s; }
 .wallet:hover { box-shadow: 0 6px 18px rgba(0,0,0,.08); transform: translateY(-2px); }
 .w-top { display: flex; align-items: center; gap: 8px; }
-.w-ic { font-size: 20px; }
-.w-ic.big { font-size: 22px; margin-right: 4px; }
+/* v2.4.1：钱包图标点选器（分类矢量图标） */
+.wallet-icon-picker { margin-top: 6px; max-height: 150px; }
+.wpick { width: 40px; height: 40px; border: 1px solid var(--border); background: var(--surface-2); border-radius: 50%; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.wpick.on { border-color: var(--primary); background: var(--primary-soft); }
 .w-name { flex: 1; font-size: 15px; }
 .w-cnt { white-space: nowrap; }
 .w-bal { font-size: 22px; font-weight: 800; margin: 8px 0 2px; }

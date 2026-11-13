@@ -13,10 +13,16 @@ const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const loginFails = new Map(); // key -> [failTimestamps]
 
 function loginKey(req, username) {
-  const ip =
-    req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-    req.socket?.remoteAddress ||
-    "unknown";
+  // v2.4.1 加固：默认不再信任 x-forwarded-for —— 该头客户端可随便伪造，
+  // 攻击者每次换一个假 IP 就永远算「新面孔」，锁不住。改用 TCP 连接的
+  // 真实来源地址；部署在反向代理后面时在 .env 设 TRUST_PROXY=true 才采信该头。
+  const trustProxy =
+    (process.env.TRUST_PROXY ?? "false").toLowerCase() === "true";
+  const ip = trustProxy
+    ? req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      req.socket?.remoteAddress ||
+      "unknown"
+    : req.socket?.remoteAddress || "unknown";
   return `${ip}|${String(username || "").toLowerCase()}`;
 }
 
@@ -79,8 +85,14 @@ r.post(
     const user = db.prepare("SELECT * FROM users WHERE username=?").get(username);
     // v2.4.0：bcrypt.compare 改异步 —— 同步版本会阻塞事件循环，
     // 比对期间所有请求（他人登录/记账）一起卡住。
-    const ok =
-      !!user && (await bcrypt.compare(password || "", user.password));
+    // v2.4.1 加固：用户名不存在时也做一次「假比对」（固定无效哈希）——
+    // 让不存在与存在的回包耗时一致（bcrypt 比对 ~0.1s），攻击者无法靠
+    // 响应快慢枚举出有效用户名。正常登录路径完全不受影响、不会变慢。
+    const DUMMY_HASH =
+      "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+    const ok = user
+      ? await bcrypt.compare(password || "", user.password)
+      : await bcrypt.compare(password || "", DUMMY_HASH);
     if (!ok) {
       recordLoginFail(key);
       return res.status(400).json({ error: "用户名或密码错误" });

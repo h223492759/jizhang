@@ -154,12 +154,19 @@ function loadNav() {
   } catch {}
   navItems.value = applyNavCustom(custom);
 }
-function saveNav() {
-  localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(navItems.value.map((n) => n.name)));
+async function saveNav() {
+  const order = navItems.value.map((n) => n.name);
   const names = {};
   for (const n of navItems.value) names[n.name] = n.label;
+  localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(order));
   localStorage.setItem(NAV_NAMES_KEY, JSON.stringify(names));
-  toast("导航栏已保存（刷新后生效）");
+  // v1.2.1：同步到服务端（按用户），换设备/换浏览器也生效
+  try {
+    await api.put("/settings/nav", { order, names });
+    toast("导航栏已保存（已云同步，其他设备登录后生效）");
+  } catch (e) {
+    toast("已保存到本机，云同步失败：" + e.message);
+  }
 }
 function navMove(i, dir) {
   const to = i + dir;
@@ -168,11 +175,15 @@ function navMove(i, dir) {
   [arr[i], arr[to]] = [arr[to], arr[i]];
   navItems.value = arr;
 }
-function navReset() {
+async function navReset() {
   localStorage.removeItem(NAV_ORDER_KEY);
   localStorage.removeItem(NAV_NAMES_KEY);
   loadNav();
-  toast("已恢复默认导航");
+  // v1.2.1：同时清掉服务端配置（其他设备也恢复默认）
+  try {
+    await api.put("/settings/nav", { order: [], names: {} });
+  } catch (_) {}
+  toast("已恢复默认导航（已云同步）");
 }
 onMounted(loadNav);
 

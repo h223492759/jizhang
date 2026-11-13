@@ -13,7 +13,7 @@ const store = useStore();
 const filter = ref({ start: "", end: "", type: "", category: "", attribution: "", keyword: "" });
 const data = ref({ list: [], total: 0, expense: 0, income: 0 });
 const page = ref(1);
-const pageSize = 20;
+const pageSize = 50; // v1.2.1：默认每页 50 条（原 20）
 const facets = ref({ years: [], attributions: [] });
 const showDialog = ref(false);
 const editing = ref(null);
@@ -332,7 +332,7 @@ function freqText(t) {
         </thead>
         <tbody>
           <tr v-for="f in data.list" :key="f.id">
-            <td><span class="ic"><CatIcon :name="f.category" :bg="catIconBg(f, store.user)" :size="28" :emoji="catIcon(f.category)" /></span>{{ f.category }}</td>
+            <td><span class="ic"><CatIcon :name="f.category" :bg="catIconBg(f, store.user)" :size="32" :emoji="catIcon(f.category)" /></span>{{ f.category }}</td>
             <td class="hide-mobile muted">
               <!-- source：'ai' = AI 识别记账，'auto' = 通知/无障碍自动记账，两者都打 AI 标签 -->
               <span v-if="f.source === 'ai' || f.source === 'auto'" class="ai-tag"

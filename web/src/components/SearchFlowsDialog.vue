@@ -7,6 +7,7 @@ import { toast } from "../toast.js";
 import PeriodSwitcher from "./PeriodSwitcher.vue";
 import FlowDialog from "./FlowDialog.vue";
 import CatIcon from "./CatIcon.vue";
+import { fmtDateWeek } from "../lib/fmtDate.js";
 import { catIconBg } from "../lib/catIcon.js";
 
 // 统计页「🔍 搜索流水」两段式交互（用户澄清后实现）：
@@ -127,11 +128,6 @@ function ownerShort(name) {
   if (!s) return "我";
   return s.length <= 2 ? s : s.slice(-2);
 }
-// 归属人专属底色（10% 透明度背景，文字保持原色）
-function ownerBg(c) {
-  if (!c) return "";
-  return `${c}1a`;
-}
 
 // ---------------- 结果弹窗内直接改/删流水（自包含：编辑走 FlowDialog，删除软删进回收站） ----------------
 const editing = ref(null);
@@ -222,16 +218,16 @@ async function delFlow(f) {
         <div v-if="loading" class="muted" style="padding: 24px; text-align: center">加载中…</div>
         <div v-else-if="rows.length" class="sf-list">
           <div v-for="f in rows" :key="f.id" class="sf-row">
-            <!-- 左：分类图标块（归属底色） -->
+            <!-- 左：分类图标（v1.2.1 方形归属底色已去掉，CatIcon 自带分类底色） -->
             <div
               class="sf-cat"
-              :style="f.attribution_color ? { background: ownerBg(f.attribution_color), color: f.attribution_color } : null"
+              :style="f.attribution_color ? { color: f.attribution_color } : null"
             >
-              <CatIcon :name="f.category" :bg="catIconBg(f, store.user)" :size="28" :emoji="catIcon(f.category)" />
+              <CatIcon :name="f.category" :bg="catIconBg(f, store.user)" :size="30" :emoji="catIcon(f.category)" />
               <span class="sf-catname">{{ f.category }}</span>
               <span v-if="f.attribution" class="sf-owner" :title="f.attribution">· {{ ownerShort(f.attribution) }}</span>
             </div>
-            <!-- 右：名称 + 时间 | 金额 -->
+            <!-- 右：v1.2.1 两行压缩 行1 名称+AI标+金额；行2 日期(YYYY-MM-DD 周几,定宽)+支付方式 -->
             <div class="sf-main">
               <div class="sf-top">
                 <span class="sf-name">{{ f.description || f.category }}</span>
@@ -243,8 +239,8 @@ async function delFlow(f) {
                 </span>
               </div>
               <div class="sf-bot">
-                <span v-if="f.payment_method" class="muted">支付：{{ f.payment_method }}</span>
-                <span class="muted">{{ dayjs(f.flow_time).format('YYYY-MM-DD HH:mm') }}</span>
+                <span class="muted sf-date">{{ fmtDateWeek(f.flow_time) }}</span>
+                <span v-if="f.payment_method" class="muted sf-pay">{{ f.payment_method }}</span>
               </div>
             </div>
             <div class="sf-actions">
@@ -314,29 +310,32 @@ async function delFlow(f) {
 .seg button.on { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: var(--shadow); }
 .modal-body { padding: 10px 16px 16px; overflow: auto; }
 
-.sf-list { display: flex; flex-direction: column; gap: 8px; }
+.sf-list { display: flex; flex-direction: column; gap: 7px; }
 .sf-row {
   display: flex;
-  gap: 14px;
-  padding: 10px 14px;
+  gap: 12px;
+  padding: 8px 12px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--surface-2);
   align-items: center;
 }
-.sf-cat { flex: 0 0 118px; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sf-cat { flex: 0 0 104px; display: flex; align-items: center; gap: 6px; min-width: 0; }
 .sf-icon { font-size: 20px; }
 .sf-catname { font-weight: 700; font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sf-owner { font-size: 11px; opacity: 0.75; margin-left: 2px; white-space: nowrap; }
-.sf-actions { flex: none; display: flex; flex-direction: column; gap: 6px; }
+.sf-actions { flex: none; display: flex; flex-direction: row; gap: 6px; }
+/* v1.2.1 两行压缩：行1 名称+AI+金额；行2 日期(YYYY-MM-DD 周几,定宽与统计弹窗对齐)+支付方式 */
 .sf-main { flex: 1; min-width: 0; }
 .sf-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .sf-name { font-size: 14px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sf-meta { display: inline-flex; align-items: baseline; gap: 8px; flex-shrink: 0; }
-.sf-amt { font-size: 15px; font-weight: 800; white-space: nowrap; }
+.sf-bot { display: flex; align-items: center; gap: 10px; margin-top: 3px; font-size: 12px; }
+.sf-date { flex: 0 0 104px; white-space: nowrap; }
+.sf-pay { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sf-amt { font-size: 14px; font-weight: 800; white-space: nowrap; }
 .sf-amt.expense { color: var(--expense); }
 .sf-amt.income { color: var(--income); }
-.sf-bot { display: flex; align-items: center; gap: 14px; margin-top: 3px; font-size: 12px; }
 .ai-tag {
   display: inline-block;
   padding: 0 5px;
@@ -350,7 +349,7 @@ async function delFlow(f) {
 .sf-more { align-self: center; margin-top: 4px; }
 .sf-more-tip { align-self: center; margin-top: 4px; font-size: 12px; }
 @media (max-width: 640px) {
-  .sf-row { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .sf-row { flex-wrap: wrap; row-gap: 6px; }
   .sf-cat { flex-basis: auto; }
 }
 </style>

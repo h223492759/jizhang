@@ -11,6 +11,7 @@ import SearchFlowsDialog from "../components/SearchFlowsDialog.vue";
 import FlowDialog from "../components/FlowDialog.vue";
 import CatIcon from "../components/CatIcon.vue";
 import { catIconBg } from "../lib/catIcon.js";
+import { fmtDateWeek } from "../lib/fmtDate.js";
 
 const store = useStore();
 
@@ -288,11 +289,6 @@ function pct(f) {
   return ((Number(f.amount) / detailSum.value) * 100).toFixed(1) + "%";
 }
 
-// 归属人专属底色（10% 透明度背景，文字保持原色）：用于详情行左侧色块
-function ownerBg(c) {
-  if (!c) return '';
-  return `${c}1a`; // 8 位 hex：前 6 位 RGB + 1a（10% alpha）
-}
 // 归属人缩写（最多 2 字，空则"我"）
 function ownerShort(name) {
   const s = (name || '').trim();
@@ -470,13 +466,15 @@ async function onRankClick(name) {
               <!-- 左边底色 = 归属人专属色（参考安卓 ownerColor，多人共享账本一眼分清谁的花销） -->
               <div
                 class="dr-cat"
-                :style="f.attribution_color ? { background: ownerBg(f.attribution_color), color: f.attribution_color } : null"
+                :style="f.attribution_color ? { color: f.attribution_color } : null"
               >
-                <CatIcon :name="f.category" :bg="catIconBg(f, store.user)" :size="28" :emoji="catIcon(f.category)" />
+                <!-- v1.2.1：方形归属底色已去掉（CatIcon 自带分类底色），只保留归属人名字着色 -->
+                <CatIcon :name="f.category" :bg="catIconBg(f, store.user)" :size="30" :emoji="catIcon(f.category)" />
                 <span class="dr-catname">{{ f.category }}</span>
                 <span v-if="f.attribution" class="dr-owner-label" :title="f.attribution">· {{ ownerShort(f.attribution) }}</span>
               </div>
               <div class="dr-main">
+                <!-- v1.2.1 两行布局：行1 名称+百分比+金额；行2 日期(YYYY-MM-DD 周几,定宽对齐)→柱状图 -->
                 <div class="dr-line1">
                   <span class="dr-name">{{ f.description || f.category }}</span>
                   <span class="dr-meta">
@@ -484,8 +482,10 @@ async function onRankClick(name) {
                     <span class="dr-amt" :class="f.type">{{ (f.type === 'expense' ? '-' : '+') + Number(f.amount).toFixed(2) }}</span>
                   </span>
                 </div>
-                <div class="dr-bar"><i :class="f.type" :style="{ width: pct(f) }"></i></div>
-                <div class="dr-date muted">{{ dayjs(f.flow_time).format('YYYY-MM-DD HH:mm') }}</div>
+                <div class="dr-line2">
+                  <span class="dr-date muted">{{ fmtDateWeek(f.flow_time) }}</span>
+                  <div class="dr-bar"><i :class="f.type" :style="{ width: pct(f) }"></i></div>
+                </div>
               </div>
               <div class="dr-actions">
                 <button class="btn btn-sm" @click.stop="editDetailFlow(f)">改</button>
@@ -568,29 +568,31 @@ export default { components: { EChart } };
 .modal-head .btn { margin-left: auto; }
 .modal-body { padding: 8px 16px 16px; overflow: auto; }
 
-/* 明细列表：柱状图样式，每条记录 = 左(分类图标+名) + 右(行1 名称+百分比+金额 / 行2 柱状 / 行3 日期) */
-.detail-list { display: flex; flex-direction: column; gap: 10px; }
-.detail-row { display: flex; gap: 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+/* 明细列表（v1.2.1 两行压缩）：行1 名称+百分比+金额；行2 日期(YYYY-MM-DD 周几,定宽)→柱状图；改/删横排 */
+.detail-list { display: flex; flex-direction: column; gap: 8px; }
+.detail-row { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
 .dr-owner-label { font-size: 11px; opacity: 0.75; margin-left: 2px; }
-.dr-cat { flex: 0 0 112px; display: flex; align-items: center; gap: 6px; justify-content: flex-start; }
+.dr-cat { flex: 0 0 104px; display: flex; align-items: center; gap: 6px; justify-content: flex-start; }
 .dr-icon { font-size: 22px; }
-.dr-catname { font-weight: 700; font-size: 15px; color: var(--text); }
-.dr-actions { flex: none; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+.dr-catname { font-weight: 700; font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dr-actions { flex: none; display: flex; flex-direction: row; gap: 6px; }
 .dr-main { flex: 1; min-width: 0; }
 .dr-line1 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.dr-name { font-size: 15px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dr-name { font-size: 14px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dr-meta { display: inline-flex; align-items: baseline; gap: 12px; flex-shrink: 0; }
-.dr-pct { font-size: 13px; color: var(--text-2); }
-.dr-amt { font-size: 15px; font-weight: 800; }
+.dr-pct { font-size: 12px; color: var(--text-2); }
+.dr-amt { font-size: 14px; font-weight: 800; }
 .dr-amt.expense { color: var(--expense); }
 .dr-amt.income { color: var(--income); }
-.dr-bar { height: 8px; border-radius: 6px; background: var(--surface); overflow: hidden; margin: 7px 0 6px; }
-.dr-bar i { display: block; height: 100%; border-radius: 6px; }
+.dr-line2 { display: flex; align-items: center; gap: 10px; margin-top: 5px; }
+/* 日期定宽（所有行柱状图起点对齐）；格式 YYYY-MM-DD 周几 */
+.dr-date { flex: 0 0 104px; font-size: 12px; white-space: nowrap; }
+.dr-bar { flex: 1; height: 6px; border-radius: 5px; background: var(--surface); overflow: hidden; }
+.dr-bar i { display: block; height: 100%; border-radius: 5px; }
 .dr-bar i.expense { background: var(--expense); }
 .dr-bar i.income { background: var(--income); }
-.dr-date { font-size: 12px; }
 @media (max-width: 640px) {
-  .detail-row { flex-direction: column; gap: 8px; }
+  .detail-row { flex-wrap: wrap; row-gap: 6px; }
   .dr-cat { flex-basis: auto; }
 }
 </style>

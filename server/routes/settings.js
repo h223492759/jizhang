@@ -92,4 +92,37 @@ r.put(
   })
 );
 
+// ---------------- 导航栏自定义（顺序 + 改名，按用户云同步 v1.2.1） ----------------
+// 原先只存浏览器 localStorage → 换电脑/换浏览器菜单排序丢失。
+// 改存服务端 settings 表（键按用户名隔离），登录后任意设备取同一份。
+const navKey = (username) => `nav_custom:${String(username || "").toLowerCase()}`;
+
+r.get("/nav", (req, res) => {
+  const raw = getSetting(navKey(req.user?.username), "");
+  try {
+    res.json(raw ? JSON.parse(raw) : null);
+  } catch {
+    res.json(null);
+  }
+});
+
+r.put(
+  "/nav",
+  wrap((req, res) => {
+    const order = Array.isArray(req.body?.order) ? req.body.order.filter((x) => typeof x === "string") : null;
+    const names =
+      req.body?.names && typeof req.body.names === "object" && !Array.isArray(req.body.names)
+        ? Object.fromEntries(
+            Object.entries(req.body.names)
+              .filter(([k, v]) => typeof k === "string" && typeof v === "string")
+              .slice(0, 100)
+          )
+        : {};
+    // order/names 都为空 = 恢复默认 → 清掉服务端配置
+    const hasCustom = (order && order.length) || Object.keys(names).length;
+    setSetting(navKey(req.user?.username), hasCustom ? JSON.stringify({ order, names }) : "");
+    res.json({ ok: true });
+  })
+);
+
 export default r;

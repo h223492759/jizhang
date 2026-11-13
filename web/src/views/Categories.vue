@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from "vue";
 import api from "../api.js";
 import { useStore } from "../store.js";
 import { toast } from "../toast.js";
+import CatIcon from "../components/CatIcon.vue";
 
 const store = useStore();
 const tab = ref("expense");
@@ -262,7 +263,7 @@ const mergeTargets = computed(() => {
 
     <div class="grid cat-grid">
       <div v-for="c in list" :key="c.id" class="card cat" @click="edit(c)">
-        <div class="cicon" :style="{ background: c.color + '22', color: c.color }">{{ c.icon }}</div>
+        <CatIcon :name="c.name" :bg="c.color + '22'" :size="46" :emoji="c.icon" />
         <div class="cname">{{ c.name }}</div>
         <div v-if="(c.flow_count||0) > 0" class="flow-badge clickable" :title="`该分类下有 ${c.flow_count} 条流水，点击查看`" @click.stop="showFlows(c)">
           📊 {{ c.flow_count }} 条流水
@@ -291,7 +292,7 @@ const mergeTargets = computed(() => {
           </div>
         </label>
         <div class="preview">
-          预览：<span class="cicon sm" :style="{ background: form.color+'22', color: form.color }">{{ form.icon }}</span> {{ form.name || "分类名" }}
+          预览：<CatIcon :name="form.name" :bg="form.color + '22'" :size="30" :emoji="form.icon" style="vertical-align: middle" /> {{ form.name || "分类名" }}
         </div>
         <div class="row" style="justify-content:flex-end">
           <button class="btn" @click="showDialog=false">取消</button>
@@ -331,7 +332,10 @@ const mergeTargets = computed(() => {
     <div v-if="flowDlg.open" class="modal-mask" @click.self="closeFlows">
       <div class="modal" style="max-width: 820px">
         <div class="modal-head">
-          <b>📊 {{ flowDlg.category?.icon }} {{ flowDlg.category?.name }} 的流水</b>
+          <b style="display:inline-flex;align-items:center;gap:8px">
+            <CatIcon :name="flowDlg.category?.name || ''" :size="22" :emoji="flowDlg.category?.icon || '💰'" />
+            {{ flowDlg.category?.name }} 的流水
+          </b>
           <span class="muted">共 {{ flowDlg.total }} 笔</span>
           <div class="seg sm" style="margin-left: 12px">
             <button :class="{on: flowDlg.sort==='amount'}" @click="setFlowSort('amount')">按金额</button>

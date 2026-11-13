@@ -29,7 +29,8 @@ export const ALL_NAV = [
   { name: "settings", label: "设置", icon: "⚙️" },
 ];
 
-// 导航自定义（顺序 + 改名）存 localStorage
+// 导航自定义（顺序 + 改名）：服务端 /api/settings/nav 按用户云同步（v1.2.1），
+// localStorage 仅作缓存（登录后服务端配置优先覆盖本地）
 export const NAV_ORDER_KEY = "jizhang_nav_order";
 export const NAV_NAMES_KEY = "jizhang_nav_names";
 

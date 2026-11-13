@@ -4,7 +4,7 @@ import { useRouter, useRoute } from "vue-router";
 import { useStore } from "../store.js";
 import { toast } from "../toast.js";
 import api from "../api.js";
-import { applyNavCustom, loadNavCustom } from "../nav.js";
+import { applyNavCustom, loadNavCustom, NAV_ORDER_KEY, NAV_NAMES_KEY } from "../nav.js";
 
 const store = useStore();
 const router = useRouter();
@@ -15,9 +15,10 @@ const menuOpen = ref(false);
 const version = ref("");
 
 // 导航项统一来自 nav.js（与设置页「导航栏管理」共用，避免两处列表漂移）
-// 「用户管理」只对管理员显示；顺序/名称按 localStorage 自定义
+// 「用户管理」只对管理员显示；顺序/名称按自定义配置（响应式：服务端拉到后刷新）
+const navCustom = ref(loadNavCustom());
 const nav = computed(() =>
-  applyNavCustom(loadNavCustom()).filter(
+  applyNavCustom(navCustom.value).filter(
     (n) => !n.admin || store.user?.role === "admin"
   )
 );
@@ -34,6 +35,15 @@ onMounted(async () => {
   try {
     const { data } = await api.get("/meta");
     if (data?.version) version.value = `v${data.version.replace(/^v/i, "")}`;
+  } catch (_) {}
+  // v1.2.1：导航自定义云同步——服务端有配置则覆盖本地（并回写 localStorage 作缓存）
+  try {
+    const { data } = await api.get("/settings/nav");
+    if (data && (Array.isArray(data.order) || data.names)) {
+      navCustom.value = { order: data.order || null, names: data.names || {} };
+      localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(data.order || []));
+      localStorage.setItem(NAV_NAMES_KEY, JSON.stringify(data.names || {}));
+    }
   } catch (_) {}
 });
 
