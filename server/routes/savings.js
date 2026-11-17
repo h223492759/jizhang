@@ -38,6 +38,23 @@ db.prepare(`
   )
 `).run();
 
+// 「更新资产和负债」整次操作记录（每次点击一条，含每条细则旧值→新值，改错可找回）
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS savings_bulk_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    book_id INTEGER NOT NULL,
+    mode TEXT NOT NULL DEFAULT 'current',
+    ymd TEXT NOT NULL DEFAULT '',
+    asset REAL NOT NULL DEFAULT 0,
+    liability REAL NOT NULL DEFAULT 0,
+    net REAL NOT NULL DEFAULT 0,
+    items TEXT NOT NULL DEFAULT '[]',
+    user_id INTEGER NOT NULL DEFAULT 0,
+    op_user TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  )
+`).run();
+
 // 一次性清洗存量浮点尾巴（历史数据保存时未 round，如 4679.139999999999）
 for (const sql of [
   "UPDATE savings_items SET amount=ROUND(amount,2) WHERE amount<>ROUND(amount,2)",
@@ -274,6 +291,40 @@ r.put(
   })
 );
 
+// 总目标（item_id 为空）的字段级修改记录，供「设定目标」弹窗展示
+r.get(
+  "/goal/edits",
+  requireBook,
+  wrap((req, res) => {
+    const edits = db
+      .prepare(
+        `SELECT e.*, ${OP_EXPR("e")} AS op_user
+         FROM savings_edit_log e
+         WHERE e.item_id IS NULL AND e.book_id=? ORDER BY e.created_at DESC, e.id DESC LIMIT 20`
+      )
+      .all(req.bookId)
+      .map((e) => ({ ...e, changes: JSON.parse(e.changes || "[]") }));
+    res.json({ edits });
+  })
+);
+
+// 「更新资产和负债」整次操作历史（每点一次一条，改错可找回旧值）
+r.get(
+  "/bulk/logs",
+  requireBook,
+  wrap((req, res) => {
+    const logs = db
+      .prepare(
+        `SELECT l.*, ${OP_EXPR("l")} AS op_user
+         FROM savings_bulk_log l
+         WHERE l.book_id=? ORDER BY l.created_at DESC, l.id DESC LIMIT 50`
+      )
+      .all(req.bookId)
+      .map((l) => ({ ...l, items: JSON.parse(l.items || "[]") }));
+    res.json({ logs });
+  })
+);
+
 // 新增资金细则（sign 默认 1=正）
 r.post(
   "/items",
@@ -436,11 +487,14 @@ r.post(
         const val = (Number(dbItem.sign) < 0 ? -1 : 1) * amt;
         if (val >= 0) asset += val;
         else liability += -val;
-        itemUpdates.push({ id: dbItem.id, amt });
+        itemUpdates.push({ id: dbItem.id, amt, name: dbItem.name, sign: Number(dbItem.sign) < 0 ? -1 : 1 });
       }
       const ym = ymd.slice(0, 7);
       const histStmt = db.prepare(
         "INSERT INTO savings_item_history (item_id, book_id, ymd, amount, note, user_id, op_user) VALUES (?,?,?,?,?,?,?)"
+      );
+      const bulkLogStmt = db.prepare(
+        "INSERT INTO savings_bulk_log (book_id, mode, ymd, asset, liability, net, items, user_id, op_user) VALUES (?,?,?,?,?,?,?,?,?)"
       );
       const tx = db.transaction(() => {
         // 先清掉该月自动生成的快照（如有），避免与 manual 快照并存导致取最大值时取错
@@ -454,6 +508,11 @@ r.post(
              asset=excluded.asset, liability=excluded.liability, net=excluded.net,
              user_id=excluded.user_id, op_user=excluded.op_user, updated_at=excluded.updated_at, manual=1`
         ).run(req.bookId, ymd, r2(asset), r2(liability), r2(asset - liability), req.user?.id || 0, req.user?.nickname || "");
+        // 整次操作的旧值留档：该月已有逐条历史在被清掉前取旧值，改错可找回
+        const prevMap = {};
+        for (const h of db.prepare("SELECT item_id, amount FROM savings_item_history WHERE book_id=? AND substr(ymd,1,7)=?").all(req.bookId, ym)) {
+          prevMap[h.item_id] = h.amount;
+        }
         // 先清掉该月已有的逐条历史，避免多次「改」同一月时记录堆积（每月只留一份逐条记录）
         db.prepare(
           "DELETE FROM savings_item_history WHERE book_id=? AND substr(ymd,1,7)=?"
@@ -462,6 +521,11 @@ r.post(
         for (const u of itemUpdates) {
           histStmt.run(u.id, req.bookId, ymd, r2(u.amt), "批量更新·回填历史", req.user?.id || 0, req.user?.nickname || "");
         }
+        bulkLogStmt.run(
+          req.bookId, "history", ymd, r2(asset), r2(liability), r2(asset - liability),
+          JSON.stringify(itemUpdates.map((u) => ({ id: u.id, name: u.name, sign: u.sign, amount: r2(u.amt), old: prevMap[u.id] != null ? r2(prevMap[u.id]) : null }))),
+          req.user?.id || 0, req.user?.nickname || ""
+        );
       });
       tx();
       res.json({ ok: true, asset, liability, net: asset - liability, manual: true });
@@ -475,13 +539,45 @@ r.post(
     const histStmt = db.prepare(
       "INSERT INTO savings_item_history (item_id, book_id, ymd, amount, note, user_id, op_user) VALUES (?,?,?,?,?,?,?)"
     );
+    // 字段级修改记录：本次批量改动金额的旧→新（明细弹窗「修改记录」可查）
+    const oldMap = {};
+    for (const it of getItems(req.bookId)) oldMap[it.id] = it;
+    const editStmt = db.prepare(
+      "INSERT INTO savings_edit_log (item_id, book_id, changes, user_id, op_user) VALUES (?,?,?,?,?)"
+    );
+    const bulkLogStmt = db.prepare(
+      "INSERT INTO savings_bulk_log (book_id, mode, ymd, asset, liability, net, items, user_id, op_user) VALUES (?,?,?,?,?,?,?,?,?)"
+    );
+    let bAsset = 0, bLiability = 0;
+    const bulkItems = [];
     const tx = db.transaction(() => {
       for (const it of list) {
         const amt = Number(it.amount);
         if (!isFinite(amt)) continue;
-        stmt.run(r2(amt), Number(it.id), req.bookId);
-        histStmt.run(Number(it.id), req.bookId, ymdNow, r2(amt), "批量更新·更新资产与负债", req.user?.id || 0, req.user?.nickname || "");
+        const old = oldMap[Number(it.id)];
+        const amt2 = r2(amt);
+        stmt.run(amt2, Number(it.id), req.bookId);
+        histStmt.run(Number(it.id), req.bookId, ymdNow, amt2, "批量更新·更新资产与负债", req.user?.id || 0, req.user?.nickname || "");
+        const sign = old && Number(old.sign) < 0 ? -1 : 1;
+        const val = sign * amt2;
+        if (val >= 0) bAsset += val;
+        else bLiability += -val;
+        bulkItems.push({ id: Number(it.id), name: old ? old.name : "", sign, amount: amt2, old: old ? r2(old.amount) : null });
+        if (old && String(old.amount) !== String(amt2)) {
+          editStmt.run(
+            Number(it.id),
+            req.bookId,
+            JSON.stringify([{ field: "金额（更新资产和负债）", from: String(old.amount ?? ""), to: String(amt2) }]),
+            req.user?.id || 0,
+            req.user?.nickname || ""
+          );
+        }
       }
+      bulkLogStmt.run(
+        req.bookId, "current", ymdNow, r2(bAsset), r2(bLiability), r2(bAsset - bLiability),
+        JSON.stringify(bulkItems),
+        req.user?.id || 0, req.user?.nickname || ""
+      );
     });
     tx();
     const snap = rebuildHistory(req.bookId, req.user);

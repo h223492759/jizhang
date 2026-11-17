@@ -61,9 +61,14 @@ function normAsOf(s) {
 // ---------------- 设定目标 ----------------
 const showGoal = ref(false);
 const goalForm = ref({ target: "", note: "" });
-function openGoal() {
+const goalEdits = ref([]);
+async function openGoal() {
   goalForm.value = { target: String(data.value.goal.target || ""), note: data.value.goal.note || "" };
   showGoal.value = true;
+  try {
+    const { data: d } = await api.get("/savings/goal/edits");
+    goalEdits.value = d.edits || [];
+  } catch { goalEdits.value = []; }
 }
 async function saveGoal() {
   const t = evalExpr(goalForm.value.target);
@@ -240,6 +245,32 @@ async function delHistory(m) {
   } catch (e) { toast(e.message); }
 }
 
+// ---------------- 「更新资产和负债」操作历史（每点一次一条，改错可找回） ----------------
+const showBulkLogs = ref(false);
+const bulkLogs = ref([]);
+async function openBulkLogs() {
+  showBulkLogs.value = true;
+  try {
+    const { data: d } = await api.get("/savings/bulk/logs");
+    bulkLogs.value = d.logs || [];
+  } catch (e) { toast(e.message); }
+}
+// 把某次操作的旧值调回「更新资产和负债」弹窗（预填，可核对后保存找回数据）
+function openBulkRestore(log) {
+  const logMap = {};
+  for (const li of log.items || []) logMap[li.id] = li;
+  const restorable = (log.items || []).some((li) => li.old != null && data.value.items.some((i) => i.id === li.id));
+  if (!restorable) return toast("这条记录没有可调出的旧值（旧值缺失或细则已删除）");
+  updDate.value = log.ymd || new Date().toLocaleDateString("sv-SE");
+  updPrefillYmd.value = log.mode === "history" ? log.ymd : "";
+  updForm.value = data.value.items.map((i) => {
+    const li = logMap[i.id];
+    return { id: i.id, name: i.name, sign: i.sign, amount: li && li.old != null ? String(li.old) : String(i.last_amount ?? i.amount) };
+  });
+  showBulkLogs.value = false;
+  showUpdate.value = true;
+}
+
 // ---------------- 历史月柱状图（每月最后一次 vs 目标线） ----------------
 const chartOpt = computed(() => {
   const ms = data.value.months || [];
@@ -368,6 +399,7 @@ async function saveHistEdit() {
       <div class="row" style="gap:8px">
         <button class="btn btn-sm" @click="openGoal">{{ target ? '修改目标' : '设定目标' }}</button>
         <button class="btn btn-lg btn-primary" @click="openUpdate">更新资产和负债</button>
+        <button class="btn btn-lg" style="margin-left:10px" @click="openBulkLogs">更新记录</button>
       </div>
     </div>
 
@@ -525,6 +557,33 @@ async function saveHistEdit() {
           <span>备注（可选）</span>
           <input class="input" v-model="goalForm.note" placeholder="如 三年内存到 100 万" />
         </label>
+        <!-- 总目标字段级修改记录 -->
+        <div class="section-title" style="margin:14px 0 8px">修改记录（改前 → 改后）</div>
+        <div style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+          <table class="tbl txn-tbl">
+          <thead>
+            <tr>
+              <th class="c-d">时间</th>
+              <th>修改内容</th>
+              <th class="c-op hide-mobile">操作人</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="e in goalEdits" :key="e.id">
+              <td class="c-d muted">{{ String(e.created_at || '').slice(0, 16) }}</td>
+              <td class="muted">
+                <div v-for="(c, i) in e.changes" :key="i">
+                  <b style="color:var(--text-primary)">{{ c.field }}</b>：{{ c.from === '' ? '（空）' : c.from }} → {{ c.to === '' ? '（空）' : c.to }}
+                </div>
+              </td>
+              <td class="c-op muted hide-mobile">{{ e.op_user || '—' }}</td>
+            </tr>
+            <tr v-if="!goalEdits.length">
+              <td colspan="3" class="muted" style="text-align:center;padding:16px 0">暂无编辑记录（本版本起自动记录）</td>
+            </tr>
+          </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -723,6 +782,41 @@ async function saveHistEdit() {
       </div>
     </div>
 
+    <!-- 「更新资产和负债」操作历史弹窗 -->
+    <div v-if="showBulkLogs" class="modal-mask" @click.self="showBulkLogs = false">
+      <div class="modal" style="max-width:640px">
+        <div class="modal-head">
+          <h3 class="modal-title" style="margin:0">更新记录（最近 50 次）</h3>
+          <div class="row" style="gap:8px">
+            <button class="btn" @click="showBulkLogs = false">关闭</button>
+          </div>
+        </div>
+        <div class="muted small" style="margin-bottom:10px">
+          每次点「更新资产和负债」都会在这里留一条完整记录（含每条细则的旧值）。改错了就点「调出旧值」，核对后保存即可找回数据。
+        </div>
+        <div style="max-height:60vh;overflow-y:auto">
+          <div v-for="log in bulkLogs" :key="log.id" class="bulk-log-item">
+            <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+              <div>
+                <b>{{ log.mode === 'history' ? '回填历史' : '更新当前余额' }}</b>
+                <span class="muted small" style="margin-left:8px">针对 {{ log.ymd }} · {{ String(log.created_at || '').slice(0, 16) }} · {{ log.op_user || '—' }}</span>
+              </div>
+              <button class="btn btn-sm" @click="openBulkRestore(log)">调出旧值</button>
+            </div>
+            <div class="muted small" style="margin:4px 0">
+              资产 <b class="income">{{ fmt(log.asset) }}</b> · 负债 <b class="expense">{{ fmt(log.liability) }}</b> · 净资产 <b>{{ fmt(log.net) }}</b>
+            </div>
+            <div class="muted small" style="line-height:1.8">
+              <div v-for="li in log.items" :key="li.id">
+                {{ li.name }}<template v-if="li.sign < 0">（负债）</template>：{{ li.old != null ? fmt(li.old) : '—' }} → <b>{{ fmt(li.amount) }}</b>
+              </div>
+            </div>
+          </div>
+          <div v-if="!bulkLogs.length" class="muted" style="text-align:center;padding:24px 0">还没有更新记录（本版本起自动记录）</div>
+        </div>
+      </div>
+    </div>
+
     <!-- 修改某月历史弹窗（逐条明细，逻辑同「更新资产和负债」，作用于该月快照） -->
     <div v-if="showHistEdit" class="modal-mask" @click.self="showHistEdit = false">
       <div class="modal" style="max-width:640px">
@@ -813,6 +907,7 @@ async function saveHistEdit() {
 .upd-name { flex: 1; font-size: 14px; }
 .upd-name em { font-style: normal; font-size: 11px; margin-left: 6px; }
 .upd-row .input { width: 190px; text-align: right; }
+.bulk-log-item { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; background: var(--surface-2); }
 .preview-box { padding: 12px; background: var(--surface-2); border-radius: 10px; }
 .prev-row { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; }
 
