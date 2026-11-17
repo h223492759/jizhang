@@ -21,6 +21,32 @@ db.prepare(`
   )
 `).run();
 
+// 金额统一收敛到 2 位小数：浮点累加会产生 103579.71000000002 之类的尾巴，
+// 保存时 round 一次，从源头杜绝长小数入库/回显
+const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100;
+
+// 编辑细则/总目标时的字段级修改记录（方案A：改前→改后，明细弹窗展示）
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS savings_edit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER,
+    book_id INTEGER NOT NULL,
+    changes TEXT NOT NULL DEFAULT '[]',
+    user_id INTEGER NOT NULL DEFAULT 0,
+    op_user TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  )
+`).run();
+
+// 一次性清洗存量浮点尾巴（历史数据保存时未 round，如 4679.139999999999）
+for (const sql of [
+  "UPDATE savings_items SET amount=ROUND(amount,2) WHERE amount<>ROUND(amount,2)",
+  "UPDATE savings_item_history SET amount=ROUND(amount,2) WHERE amount<>ROUND(amount,2)",
+  "UPDATE savings_history SET asset=ROUND(asset,2), liability=ROUND(liability,2), net=ROUND(net,2) WHERE asset<>ROUND(asset,2) OR liability<>ROUND(liability,2) OR net<>ROUND(net,2)",
+]) {
+  try { db.prepare(sql).run(); } catch (_) {}
+}
+
 const today = () => new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD（本地时区）
 
 // 生效日期归一：YYYY-MM-DD 或空（空=当前/未指定）。支持 8 位紧凑输入 20241217 → 2024-12-17
@@ -228,12 +254,23 @@ r.put(
     const target = Number(req.body?.target);
     if (!(target >= 0)) return res.status(400).json({ error: "目标金额不合法" });
     const note = (req.body?.note || "").toString().trim();
+    const t2 = r2(target);
+    // 修改记录（item_id 为空 = 总目标）
+    const cur = db.prepare("SELECT target, note FROM savings_goal WHERE book_id=?").get(req.bookId);
+    const changes = [];
+    if (String(cur?.target ?? 0) !== String(t2)) changes.push({ field: "目标金额", from: String(cur?.target ?? ""), to: String(t2) });
+    if (String(cur?.note ?? "") !== String(note)) changes.push({ field: "目标备注", from: String(cur?.note ?? ""), to: note });
     db.prepare(
       `INSERT INTO savings_goal (book_id, target, note, updated_at)
        VALUES (?,?,?, datetime('now','localtime'))
        ON CONFLICT(book_id) DO UPDATE SET target=excluded.target, note=excluded.note, updated_at=excluded.updated_at`
-    ).run(req.bookId, target, note);
-    res.json({ ok: true, target });
+    ).run(req.bookId, t2, note);
+    if (changes.length) {
+      db.prepare(
+        "INSERT INTO savings_edit_log (item_id, book_id, changes, user_id, op_user) VALUES (?,?,?,?,?)"
+      ).run(null, req.bookId, JSON.stringify(changes), req.user?.id || 0, req.user?.nickname || "");
+    }
+    res.json({ ok: true, target: t2 });
   })
 );
 
@@ -343,12 +380,28 @@ r.put(
     }
     const amount = req.body?.amount != null ? Number(req.body.amount) : cur.amount;
     if (!isFinite(amount)) return res.status(400).json({ error: "金额格式不对" });
+    const amt2 = r2(amount);
     const sign = req.body?.sign != null ? (Number(req.body.sign) < 0 ? -1 : 1) : cur.sign;
     const asOf = req.body?.as_of !== undefined ? normAsOf(req.body.as_of) : cur.as_of;
     const asOfEnd = req.body?.as_of_end !== undefined ? normAsOf(req.body.as_of_end) : cur.as_of_end;
+    const note = (req.body?.note ?? cur.note).toString().trim();
     db.prepare(
       `UPDATE savings_items SET name=?, sign=?, amount=?, note=?, as_of=?, as_of_end=?, updated_at=datetime('now','localtime') WHERE id=?`
-    ).run(name, sign, amount, (req.body?.note ?? cur.note).toString().trim(), asOf, asOfEnd, cur.id);
+    ).run(name, sign, amt2, note, asOf, asOfEnd, cur.id);
+    // 字段级修改记录：改了什么（旧→新），明细弹窗可查
+    const changes = [];
+    const push = (label, from, to) => { if (String(from) !== String(to)) changes.push({ field: label, from: String(from ?? ""), to: String(to ?? "") }); };
+    push("名称", cur.name, name);
+    push("金额", cur.amount, amt2);
+    push("资产/负债", cur.sign < 0 ? "负债" : "资产", sign < 0 ? "负债" : "资产");
+    push("备注", cur.note || "", note);
+    push("生效日期", cur.as_of || "", asOf);
+    push("失效日期", cur.as_of_end || "", asOfEnd);
+    if (changes.length) {
+      db.prepare(
+        "INSERT INTO savings_edit_log (item_id, book_id, changes, user_id, op_user) VALUES (?,?,?,?,?)"
+      ).run(cur.id, req.bookId, JSON.stringify(changes), req.user?.id || 0, req.user?.nickname || "");
+    }
     const snap = rebuildHistory(req.bookId, req.user);
     res.json({ ok: true, ...snap });
   })
@@ -400,14 +453,14 @@ r.post(
            ON CONFLICT(book_id, ymd) DO UPDATE SET
              asset=excluded.asset, liability=excluded.liability, net=excluded.net,
              user_id=excluded.user_id, op_user=excluded.op_user, updated_at=excluded.updated_at, manual=1`
-        ).run(req.bookId, ymd, asset, liability, asset - liability, req.user?.id || 0, req.user?.nickname || "");
+        ).run(req.bookId, ymd, r2(asset), r2(liability), r2(asset - liability), req.user?.id || 0, req.user?.nickname || "");
         // 先清掉该月已有的逐条历史，避免多次「改」同一月时记录堆积（每月只留一份逐条记录）
         db.prepare(
           "DELETE FROM savings_item_history WHERE book_id=? AND substr(ymd,1,7)=?"
         ).run(req.bookId, ym);
         // 每条生效细则各记一条历史（与「直接修改当前金额」一致，便于明细弹窗查看）
         for (const u of itemUpdates) {
-          histStmt.run(u.id, req.bookId, ymd, u.amt, "批量更新·回填历史", req.user?.id || 0, req.user?.nickname || "");
+          histStmt.run(u.id, req.bookId, ymd, r2(u.amt), "批量更新·回填历史", req.user?.id || 0, req.user?.nickname || "");
         }
       });
       tx();
@@ -426,8 +479,8 @@ r.post(
       for (const it of list) {
         const amt = Number(it.amount);
         if (!isFinite(amt)) continue;
-        stmt.run(amt, Number(it.id), req.bookId);
-        histStmt.run(Number(it.id), req.bookId, ymdNow, amt, "批量更新·更新资产与负债", req.user?.id || 0, req.user?.nickname || "");
+        stmt.run(r2(amt), Number(it.id), req.bookId);
+        histStmt.run(Number(it.id), req.bookId, ymdNow, r2(amt), "批量更新·更新资产与负债", req.user?.id || 0, req.user?.nickname || "");
       }
     });
     tx();
@@ -493,14 +546,23 @@ r.get(
       .prepare("SELECT * FROM savings_items WHERE id=? AND book_id=?")
       .get(req.params.id, req.bookId);
     if (!it) return res.status(404).json({ error: "细则不存在" });
-    const rows = db
-      .prepare(
-        `SELECT h.*, ${OP_EXPR("h")} AS op_user
-         FROM savings_item_history h
-         WHERE h.item_id=? AND h.book_id=? ORDER BY h.created_at DESC, h.id DESC`
-      )
-      .all(it.id, req.bookId);
-    res.json({ item: it, rows });
+      const rows = db
+        .prepare(
+          `SELECT h.*, ${OP_EXPR("h")} AS op_user
+           FROM savings_item_history h
+           WHERE h.item_id=? AND h.book_id=? ORDER BY h.created_at DESC, h.id DESC`
+        )
+        .all(it.id, req.bookId);
+      // 字段级修改记录（编辑细则弹窗保存时自动写入）
+      const edits = db
+        .prepare(
+          `SELECT e.*, ${OP_EXPR("e")} AS op_user
+           FROM savings_edit_log e
+           WHERE e.item_id=? AND e.book_id=? ORDER BY e.created_at DESC, e.id DESC LIMIT 50`
+        )
+        .all(it.id, req.bookId)
+        .map((e) => ({ ...e, changes: JSON.parse(e.changes || "[]") }));
+      res.json({ item: it, rows, edits });
   })
 );
 
@@ -519,14 +581,15 @@ r.post(
     // 可选 ymd：安卓端新增记录可指定日期；不传或格式不对则记今天
     const rawYmd = (req.body?.ymd || "").toString().trim();
     const ymd = /^\d{4}-\d{2}-\d{2}$/.test(rawYmd) ? rawYmd : today();
+    const amt2 = r2(amount);
     db.transaction(() => {
       db.prepare("UPDATE savings_items SET amount=?, updated_at=datetime('now','localtime') WHERE id=?").run(
-        amount,
+        amt2,
         cur.id
       );
       db.prepare(
         "INSERT INTO savings_item_history (item_id, book_id, ymd, amount, note, user_id, op_user) VALUES (?,?,?,?,?,?,?)"
-      ).run(cur.id, req.bookId, ymd, amount, note, req.user?.id || 0, req.user?.nickname || "");
+      ).run(cur.id, req.bookId, ymd, amt2, note, req.user?.id || 0, req.user?.nickname || "");
     })();
     const item = db.prepare("SELECT * FROM savings_items WHERE id=?").get(cur.id);
     const snap = rebuildHistory(req.bookId, req.user);

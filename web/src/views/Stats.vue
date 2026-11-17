@@ -97,7 +97,7 @@ const attrTitle = computed(() => (type.value === "income" ? "收入归属" : "�
 function pie(title, data, colorMap) {
   return {
     title: { text: title, left: "center", top: 0, textStyle: { fontSize: 14 } },
-    tooltip: { trigger: "item", formatter: "{b}: ¥{c} ({d}%)" },
+    tooltip: { trigger: "item", formatter: (p) => `${p.name}: ${fmt(p.value)} (${p.percent}%)` },
     // legend 放上方（用户要求），全部显示不分页；分类多时自然换行多行
     legend: { top: 24, type: "plain", width: "96%", itemWidth: 10, itemHeight: 10, textStyle: { fontSize: 11 } },
     color: PALETTE,

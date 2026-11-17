@@ -174,7 +174,7 @@ const pieOpt = computed(() => {
   return {
     tooltip: { trigger: "item", formatter: (p) => `${p.name}<br/>${mdFmt(p.value)}（${p.percent}%）` },
     legend: { type: "scroll", bottom: 0 },
-    series: [{ type: "pie", radius: ["42%", "70%"], avoidLabelOverlap: true, itemStyle: { borderRadius: 6, borderWidth: 0 }, label: { show: true, formatter: "{b}\n{c}" }, data: cats.map((c) => ({ name: c.category, value: c.amount })) }],
+    series: [{ type: "pie", radius: ["42%", "70%"], avoidLabelOverlap: true, itemStyle: { borderRadius: 6, borderWidth: 0 }, label: { show: true, formatter: (p) => `${p.name}\n${fmt(p.value)}` }, data: cats.map((c) => ({ name: c.category, value: c.amount })) }],
   };
 });
 // 区域 5 / 7：对比柱状（高亮选中月）

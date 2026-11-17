@@ -10,6 +10,14 @@ r.use(auth);
 const OP_EXPR =
   "COALESCE(wallet_txns.op_user, (SELECT u.nickname FROM users u WHERE u.id = wallet_txns.user_id))";
 
+// 金额统一收敛到 2 位小数：浮点累加会产生 103579.71000000002 之类的尾巴
+const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100;
+
+// 一次性清洗存量浮点尾巴（wallet_txns 历史数据）
+try {
+  db.prepare("UPDATE wallet_txns SET amount=ROUND(amount,2) WHERE amount<>ROUND(amount,2)").run();
+} catch (_) {}
+
 const normDate = (s) => {
   const d = String(s || "").replace(/\D/g, "");
   if (d.length === 8) return `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
@@ -140,15 +148,15 @@ r.get(
       const a = map[w.id] || { balance: 0, total_in: 0, total_out: 0, count: 0, last_ymd: "" };
       const links = parseLinkLinks(w);
       const linked = linkedSum(req.bookId, links);
-      const eff = (a.balance || 0) + linked; // 手动余额 + 关联分类净影响
+      const eff = r2((a.balance || 0) + linked); // 手动余额 + 关联分类净影响
       return {
         ...w,
-        manualBalance: a.balance || 0,
-        linked: linked,
+        manualBalance: r2(a.balance),
+        linked: r2(linked),
         balance: eff,
         deposit_rules: parseDepositRules(w),
-        total_in: a.total_in,
-        total_out: a.total_out,
+        total_in: r2(a.total_in),
+        total_out: r2(a.total_out),
         count: a.count,
         last_ymd: a.last_ymd || "",
         percent: w.target > 0 ? Math.round((eff / w.target) * 100) : 0,
@@ -159,8 +167,8 @@ r.get(
     });
     res.json({
       wallets: list,
-      totalBalance: list.reduce((s, w) => s + w.balance, 0),
-      totalTarget: list.reduce((s, w) => s + (w.target || 0), 0),
+      totalBalance: r2(list.reduce((s, w) => s + w.balance, 0)),
+      totalTarget: r2(list.reduce((s, w) => s + (w.target || 0), 0)),
     });
   })
 );
@@ -412,9 +420,9 @@ r.get(
     res.json({
       wallet: { ...w, deposit_rules: _parsedDR, _rawDepositRules: w.deposit_rules },
       rows,
-      balance,
+      balance: r2(balance),
       linkedRows,
-      linkedSum,
+      linkedSum: r2(linkedSum),
       monthly,
       depositDebug,
       linkFrom: w.link_from || "",
@@ -443,7 +451,7 @@ r.post(
       .run(
         req.bookId,
         w.id,
-        signed,
+        r2(signed),
         normDate(req.body?.ymd),
         (req.body?.note || "").toString().trim(),
         req.user.id,
@@ -469,7 +477,7 @@ r.put(
       `UPDATE wallet_txns SET amount=?, ymd=?, note=?, op_user=?
        WHERE id=? AND book_id=?`
     ).run(
-      signed,
+      r2(signed),
       normDate(req.body?.ymd),
       (req.body?.note || "").toString().trim(),
       req.user.nickname || "",

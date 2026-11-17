@@ -67,7 +67,7 @@ const chartOpt = computed(() => {
         radius: ["42%", "70%"],
         avoidLabelOverlap: true,
         itemStyle: { borderRadius: 6, borderWidth: 0 },
-        label: { show: true, formatter: "{b}\n{c}" },
+        label: { show: true, formatter: (p) => `${p.name}\n${fmt(p.value)}` },
         data: ws.map((w) => ({ name: w.name, value: Number(w.balance) })),
       },
     ],

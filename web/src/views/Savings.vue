@@ -136,7 +136,7 @@ async function moveItem(it, dir) {
 
 // ---------------- 资金明细：直接改金额 + 历史记录（仿分类钱包小钱包） ----------------
 const showItemDetail = ref(false);
-const itemDetail = ref({ item: {}, rows: [] });
+const itemDetail = ref({ item: {}, rows: [], edits: [] });
 const itemAdjForm = ref({ amount: "", note: "" });
 async function openItemDetail(it) {
   try {
@@ -648,6 +648,32 @@ async function saveHistEdit() {
             </tr>
             <tr v-if="!itemDetail.rows.length">
               <td colspan="5" class="muted" style="text-align:center;padding:24px 0">还没有修改记录</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- 字段级修改记录：编辑细则弹窗保存后自动写入（谁在何时把什么从多少改成多少） -->
+        <div class="section-title" style="margin:18px 0 10px">修改记录（编辑细则时的改前 → 改后）</div>
+        <table class="tbl txn-tbl">
+          <thead>
+            <tr>
+              <th class="c-d">时间</th>
+              <th>修改内容</th>
+              <th class="c-op hide-mobile">操作人</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="e in itemDetail.edits || []" :key="e.id">
+              <td class="c-d muted">{{ String(e.created_at || '').slice(0, 16) }}</td>
+              <td class="muted">
+                <div v-for="(c, i) in e.changes" :key="i">
+                  <b style="color:var(--text-primary)">{{ c.field }}</b>：{{ c.from === '' ? '（空）' : c.from }} → {{ c.to === '' ? '（空）' : c.to }}
+                </div>
+              </td>
+              <td class="c-op muted hide-mobile">{{ e.op_user || '—' }}</td>
+            </tr>
+            <tr v-if="!(itemDetail.edits || []).length">
+              <td colspan="3" class="muted" style="text-align:center;padding:16px 0">暂无编辑记录（本版本起自动记录）</td>
             </tr>
           </tbody>
         </table>
