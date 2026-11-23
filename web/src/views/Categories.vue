@@ -10,7 +10,7 @@ import { tintSolid, plainIcon } from "../lib/catIcon";
 const store = useStore();
 const tab = ref("expense");
 const showDialog = ref(false);
-const form = ref({ id: null, name: "", type: "expense", icon: "💰", color: "#6366f1" });
+const form = ref({ id: null, name: "", type: "expense", icon: "", color: "#6366f1" });
 
 // 合并删除对话框：删除的分类有数据时，强制选个目标合并再删
 const mergeDlg = ref({ open: false, source: null, targetId: "" });
@@ -127,11 +127,7 @@ function ownerInitials(name) {
   return s.length <= 2 ? s : s.slice(-2);
 }
 
-const ICONS = [
-  "🍜","🛍️","🚌","🏠","🎮","💊","📚","📱","🎁","💸","💼","🏆","📈","🧧","🪙","☕","🍔","🚗","✈️","🏥","🎬","👕","🐱","💡","🎓","💰","💳","🍎","🏋️","🎵",
-  "🥘","🥡","🧋","🥦","🍉","🍰","🍪","🍺","💄","🧴","👟","👜","🧥","💍","🎂","💐","🎉","🤝","🚕","🚄","🅿️","⛽","🔧","💻","📷","🎧","🎨","🚲","🏊","🏕️",
-  "🧳","🛏️","🛋️","🪴","🧹","🐶","🐟","🖊️","🎒","🏫","📊","🏦","💹","🧾","👶","🍼","👴","👫","💒","🎊","📺","🎤","🎲","📦","⚙️","🛡️","🎰","📎","⭐","📌","❤️"
-];
+// emoji 图标池已弃用（全部改用新绘制的矢量字形），老数据的 emoji icon 值仍能显示但不再提供选择
 const COLORS = ["#6366f1","#ef4444","#f59e0b","#10b981","#3b82f6","#ec4899","#8b5cf6","#14b8a6","#f97316","#64748b"];
 
 // 矢量字形池（与宫格展示同一套 SVG 图标）
@@ -173,13 +169,10 @@ const usedIcons = computed(() => {
   }
   return s;
 });
-function pickIcon(i) {
-  if (usedIcons.value.has(i) && i !== form.value.icon) return;
-  form.value.icon = i;
-}
 // 矢量字形选择：存 "svg:<字形名>"，渲染层按字形名取 SVG
 function pickGlyph(n) {
-  pickIcon("svg:" + n);
+  if (usedIcons.value.has("svg:" + n) && currentGlyph.value !== n) return;
+  form.value.icon = "svg:" + n;
 }
 // 当前实际生效的字形：显式 svg: 覆盖优先；否则分类名能自动匹配时高亮该字形
 const currentGlyph = computed(() => {
@@ -194,7 +187,7 @@ function iconLabel(icon) {
 }
 
 function add() {
-  form.value = { id: null, name: "", type: tab.value, icon: "💰", color: "#6366f1" };
+  form.value = { id: null, name: "", type: tab.value, icon: "", color: "#6366f1" };
   showDialog.value = true;
 }
 function edit(c) {
@@ -319,11 +312,8 @@ const mergeTargets = computed(() => {
               :class="['picon picon-glyph', { on: currentGlyph === g, used: usedIcons.has('svg:' + g) && currentGlyph !== g }]"
               :title="g" @click="pickGlyph(g)"
             >
-              <CatIcon :name="g" :bg="'#F2F2F2'" :size="26" />
+              <CatIcon :name="g" :bg="'#F2F2F2'" :size="46" />
             </button>
-          </div>
-          <div class="picker emoji-picker">
-            <button v-for="i in ICONS" :key="i" :class="['picon',{on:form.icon===i, used: usedIcons.has(i) && i!==form.icon}]" @click="pickIcon(i)">{{ i }}</button>
           </div>
         </label>
         <label class="field"><span>颜色</span>
@@ -332,7 +322,7 @@ const mergeTargets = computed(() => {
           </div>
         </label>
         <div class="preview">
-          预览：<CatIcon :name="form.name" :bg="tintSolid(form.color, store.theme)" :size="30" :emoji="form.icon" style="vertical-align: middle" /> {{ form.name || "分类名" }}
+          预览：<CatIcon :name="form.name" :bg="tintSolid(form.color, store.theme)" :size="46" :emoji="form.icon" style="vertical-align: middle" /> {{ form.name || "分类名" }}
         </div>
         <div class="row" style="justify-content:flex-end">
           <button class="btn" @click="showDialog=false">取消</button>
@@ -511,9 +501,8 @@ const mergeTargets = computed(() => {
 .mini { border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); cursor: pointer; font-size: 11px; width: 18px; height: 18px; border-radius: 5px; line-height: 1; opacity: 0; }
 .cat:hover .del, .cat:hover .mini { opacity: 1; }
 .picker { display: flex; flex-wrap: wrap; gap: 6px; max-height: 180px; overflow-y: auto; padding-right: 4px; }
-.picker.glyph-picker { max-height: 152px; }
-.picker.emoji-picker { max-height: 96px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border); }
-.picon { width: 38px; height: 38px; border: 1px solid var(--border); background: var(--surface-2); border-radius: 9px; font-size: 19px; cursor: pointer; }
+.picker.glyph-picker { max-height: 264px; }
+.picon { width: 54px; height: 54px; border: 1px solid var(--border); background: var(--surface-2); border-radius: 12px; font-size: 19px; cursor: pointer; }
 .picon.picon-glyph { display: inline-flex; align-items: center; justify-content: center; padding: 0; background: var(--surface); }
 .picon.on { border-color: var(--primary); background: var(--primary-soft); }
 .picon.used { opacity: .4; filter: grayscale(1); cursor: not-allowed; }

@@ -254,7 +254,7 @@ function close() {
             :class="['cat', { on: form.category === c.name }]"
             @click="form.category = c.name"
           >
-            <CatIcon :name="c.name" :size="24" :emoji="c.icon" />{{ c.name }}
+            <CatIcon :name="c.name" :size="32" :emoji="c.icon" />{{ c.name }}
           </button>
         </div>
       </label>
@@ -328,9 +328,9 @@ function close() {
 .modal { max-width: min(1100px, 96vw); }
 .cat-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
 .cat {
-  display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 6px;
+  display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 8px;
   border: 1px solid var(--border); background: var(--surface-2); border-radius: 10px;
-  padding: 10px 6px; cursor: pointer; font-size: 15px; font-weight: 600; color: var(--text-2);
+  padding: 8px 6px; cursor: pointer; font-size: 15px; font-weight: 600; color: var(--text-2);
 }
 .cat em { font-size: 20px; font-style: normal; }
 .cat.on { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
